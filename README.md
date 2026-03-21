@@ -86,7 +86,10 @@ Wenn `list_campaigns` eine Auswahl zurückgibt, den Call mit einem vorgeschlagen
 Voraussetzung:
 - LinkedIn Developer App vorhanden
 - Marketing API Zugriff für die App freigeschaltet
-- Scope `r_ads` für read-only Ads-Zugriff
+- Scope `r_ads` für Entities (Accounts/Campaigns/Creatives)
+- Scope `r_ads_reporting` für `get_insights`
+- Die Ad Accounts sind in der Developer App unter `Products -> View Ad Accounts` gemappt
+- Der authentifizierte User hat eine Ad-Account-Rolle (mind. `VIEWER`)
 
 ### 1) App in LinkedIn Developer Portal vorbereiten
 
@@ -134,11 +137,32 @@ Beispiel-Response:
 
 `access_token` als `LINKEDIN_ACCESS_TOKEN` in die Claude MCP Config übernehmen.
 
+Wichtig: Bei diesem MCP erfolgt Authentifizierung über `env` in der MCP Config.
+Es gibt hier keinen eingebauten OAuth-Refresh-Flow im Server selbst.
+Wenn der Token abläuft, musst du einen neuen Token erzeugen und in der Config ersetzen.
+
 ### 4) Ablauf / Erneuerung
 
 - Access Tokens laufen typischerweise nach ca. 60 Tagen ab.
 - Dann OAuth-Flow erneut durchführen.
 - Falls deine App für programmatic refresh tokens freigeschaltet ist, kannst du stattdessen per Refresh Token erneuern.
+
+### 5) 401/403 schnell diagnostizieren
+
+Token gegen Ads-Account-Endpunkt testen:
+
+```bash
+curl -i 'https://api.linkedin.com/rest/adAccounts?q=search&pageSize=1' \
+  -H 'Authorization: Bearer DEIN_ACCESS_TOKEN' \
+  -H 'Linkedin-Version: 202602' \
+  -H 'X-Restli-Protocol-Version: 2.0.0'
+```
+
+Interpretation:
+
+- `401 Unauthorized`: Token abgelaufen, widerrufen oder falscher Scope-Set wurde neu konsentiert
+- `403 Forbidden`: Token ist gültig, aber Scope/Rolle/App-Mapping fehlt
+- `200 OK`: Auth grundsätzlich korrekt
 
 ## Environment Variablen
 
