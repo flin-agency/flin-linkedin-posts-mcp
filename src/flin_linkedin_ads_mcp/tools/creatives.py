@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
+from urllib.parse import quote
 
 from ..config import LinkedInAdsSettings
+from ..errors import LinkedInAdsError
 from ..linkedin_client import LinkedInClient
 from .common import (
     build_collection_response,
@@ -36,6 +38,9 @@ ALLOWED_CREATIVE_FIELDS = {
     "lastModifiedBy",
     "leadgenCallToAction",
 }
+DERIVED_CREATIVE_FIELDS: dict[str, tuple[str, ...]] = {
+    "imageUrl": ("content",),
+}
 
 
 def list_creatives(
@@ -45,8 +50,9 @@ def list_creatives(
     arguments: dict[str, Any],
 ) -> dict[str, Any]:
     account_id = resolve_ad_account_id(client=client, ad_account_id=arguments.get("ad_account_id"))
+    requested_fields, output_fields_csv, derived_fields = _prepare_requested_fields(arguments.get("fields"))
     fields_csv = resolve_fields(
-        arguments.get("fields"),
+        requested_fields,
         default_fields=DEFAULT_CREATIVE_FIELDS,
         allowed_fields=ALLOWED_CREATIVE_FIELDS,
     )
@@ -66,24 +72,30 @@ def list_creatives(
             [normalize_creative_urn(creative_id, parameter_name="creative_ids[]") for creative_id in creative_ids]
         )
 
-    payload = client.get_json(
-        f"adAccounts/{account_id}/creatives",
-        params=compact_params(
-            {
-                "q": "criteria",
-                "campaigns": campaign_selector,
-                "creatives": creative_selector,
-                "pageSize": normalize_page_size(arguments.get("page_size")),
-                "pageToken": arguments.get("page_token"),
-                "sortOrder": normalize_sort_order(arguments.get("sort_order")),
-            }
-        ),
+    params = compact_params(
+        {
+            "q": "criteria",
+            "campaigns": campaign_selector,
+            "creatives": creative_selector,
+            "pageSize": normalize_page_size(arguments.get("page_size")),
+            "pageToken": arguments.get("page_token"),
+            "sortOrder": normalize_sort_order(arguments.get("sort_order")),
+        }
     )
+
+    payload = client.get_json(
+        f"adAccounts/{account_id}/creatives?{_raw_query(params)}",
+        params={},
+    )
+    if "imageUrl" in derived_fields:
+        payload = _inject_derived_image_url_in_collection(payload=payload, client=client)
+
+    response_fields_csv = output_fields_csv if output_fields_csv is not None else fields_csv
     return build_collection_response(
         payload=payload,
         api_version=settings.api_version,
         request_id=getattr(client, "last_request_id", None),
-        fields_csv=fields_csv,
+        fields_csv=response_fields_csv,
     )
 
 
@@ -95,26 +107,199 @@ def get_creative(
 ) -> dict[str, Any]:
     account_id = resolve_ad_account_id(client=client, ad_account_id=arguments.get("ad_account_id"))
     creative_urn = normalize_creative_urn(arguments["id"], parameter_name="id")
+    creative_path = quote(creative_urn, safe="")
+    requested_fields, output_fields_csv, derived_fields = _prepare_requested_fields(arguments.get("fields"))
     fields_csv = resolve_fields(
-        arguments.get("fields"),
+        requested_fields,
         default_fields=DEFAULT_CREATIVE_FIELDS,
         allowed_fields=ALLOWED_CREATIVE_FIELDS,
     )
 
     payload = client.get_json(
-        f"adAccounts/{account_id}/creatives",
-        params={
-            "q": "criteria",
-            "creatives": to_restli_list([creative_urn]),
-            "pageSize": 1,
-        },
+        f"adAccounts/{account_id}/creatives/{creative_path}",
+        params={},
     )
-    elements = payload.get("elements", [])
-    entity = elements[0] if isinstance(elements, list) and elements else {}
+    if "imageUrl" in derived_fields and isinstance(payload, Mapping):
+        payload = _inject_derived_image_url_in_entity(payload=payload, client=client)
+
+    response_fields_csv = output_fields_csv if output_fields_csv is not None else fields_csv
 
     return build_entity_response(
-        payload=entity if isinstance(entity, dict) else {},
+        payload=payload if isinstance(payload, dict) else {},
         api_version=settings.api_version,
         request_id=getattr(client, "last_request_id", None),
-        fields_csv=fields_csv,
+        fields_csv=response_fields_csv,
     )
+
+
+def _raw_query(params: dict[str, Any]) -> str:
+    segments = [f"{quote(str(key), safe='._')}={quote(_query_value(value), safe=',()')}" for key, value in params.items()]
+    return "&".join(segments)
+
+
+def _query_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _prepare_requested_fields(value: Any) -> tuple[Any, str | None, set[str]]:
+    if not isinstance(value, list):
+        return value, None, set()
+
+    api_fields: list[Any] = []
+    output_fields: list[str] = []
+    derived_fields: set[str] = set()
+    seen_api_fields: set[str] = set()
+    seen_output_fields: set[str] = set()
+
+    for item in value:
+        if not isinstance(item, str):
+            api_fields.append(item)
+            continue
+
+        clean_item = item.strip()
+        if clean_item not in seen_output_fields:
+            seen_output_fields.add(clean_item)
+            output_fields.append(clean_item)
+
+        dependencies = DERIVED_CREATIVE_FIELDS.get(clean_item)
+        if dependencies is None:
+            if clean_item not in seen_api_fields:
+                seen_api_fields.add(clean_item)
+                api_fields.append(clean_item)
+            continue
+
+        derived_fields.add(clean_item)
+        for dependency in dependencies:
+            if dependency in seen_api_fields:
+                continue
+            seen_api_fields.add(dependency)
+            api_fields.append(dependency)
+
+    output_fields_csv = ",".join(output_fields) if output_fields else None
+    return api_fields, output_fields_csv, derived_fields
+
+
+def _inject_derived_image_url_in_collection(*, payload: dict[str, Any], client: LinkedInClient) -> dict[str, Any]:
+    elements = payload.get("elements")
+    if not isinstance(elements, list):
+        return payload
+
+    share_cache: dict[str, str | None] = {}
+    normalized_elements: list[Any] = []
+    for item in elements:
+        if not isinstance(item, Mapping):
+            normalized_elements.append(item)
+            continue
+
+        row = dict(item)
+        row["imageUrl"] = _resolve_image_url_for_creative(
+            creative=row,
+            client=client,
+            share_cache=share_cache,
+        )
+        normalized_elements.append(row)
+
+    payload["elements"] = normalized_elements
+    return payload
+
+
+def _inject_derived_image_url_in_entity(*, payload: Mapping[str, Any], client: LinkedInClient) -> dict[str, Any]:
+    row = dict(payload)
+    row["imageUrl"] = _resolve_image_url_for_creative(
+        creative=row,
+        client=client,
+        share_cache={},
+    )
+    return row
+
+
+def _resolve_image_url_for_creative(
+    *,
+    creative: Mapping[str, Any],
+    client: LinkedInClient,
+    share_cache: dict[str, str | None],
+) -> str | None:
+    direct_url = _find_image_url(creative.get("content"))
+    if direct_url:
+        return direct_url
+
+    share_reference = _extract_share_reference(creative.get("content"))
+    if not share_reference:
+        return None
+
+    if share_reference in share_cache:
+        return share_cache[share_reference]
+
+    resolved_url = _resolve_image_url_from_share_reference(client=client, share_reference=share_reference)
+    share_cache[share_reference] = resolved_url
+    return resolved_url
+
+
+def _extract_share_reference(content: Any) -> str | None:
+    if not isinstance(content, Mapping):
+        return None
+    reference = content.get("reference")
+    if not isinstance(reference, str):
+        return None
+    clean_reference = reference.strip()
+    if not clean_reference.startswith("urn:li:share:"):
+        return None
+    return clean_reference
+
+
+def _resolve_image_url_from_share_reference(*, client: LinkedInClient, share_reference: str) -> str | None:
+    share_path = quote(share_reference, safe="")
+    for path in (f"shares/{share_path}", f"posts/{share_path}"):
+        try:
+            payload = client.get_json(path, params={})
+        except LinkedInAdsError:
+            continue
+        image_url = _find_image_url(payload)
+        if image_url:
+            return image_url
+    return None
+
+
+def _find_image_url(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value if _looks_like_image_url(value) else None
+
+    if isinstance(value, Mapping):
+        for key in ("imageUrl", "thumbnailUrl", "resolvedUrl", "url"):
+            if key in value:
+                image_url = _find_image_url(value.get(key))
+                if image_url:
+                    return image_url
+        for nested_value in value.values():
+            image_url = _find_image_url(nested_value)
+            if image_url:
+                return image_url
+        return None
+
+    if isinstance(value, list):
+        for item in value:
+            image_url = _find_image_url(item)
+            if image_url:
+                return image_url
+        return None
+
+    return None
+
+
+def _looks_like_image_url(value: str) -> bool:
+    clean_value = value.strip()
+    if not clean_value:
+        return False
+    lower = clean_value.lower()
+    if not lower.startswith(("https://", "http://")):
+        return False
+    without_query = lower.split("?", 1)[0]
+    if without_query.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif", ".svg")):
+        return True
+    if "media.licdn.com" in lower:
+        return True
+    if "/dms/image/" in lower:
+        return True
+    return False

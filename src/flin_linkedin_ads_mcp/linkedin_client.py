@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import time
 from typing import Any, Mapping
+from urllib.parse import parse_qsl, urlsplit
 
 import httpx
 
@@ -72,6 +73,9 @@ class LinkedInClient:
             "Linkedin-Version": self.api_version,
             "X-Restli-Protocol-Version": self.restli_protocol_version,
         }
+        restli_method_override = self._restli_method_override(method=method, path=path, params=params)
+        if restli_method_override is not None:
+            request_headers["X-RestLi-Method"] = restli_method_override
 
         attempts = 0
         while True:
@@ -167,6 +171,29 @@ class LinkedInClient:
             request_id=request_id,
             details=details,
         )
+
+    @staticmethod
+    def _restli_method_override(*, method: str, path: str, params: Mapping[str, Any] | None) -> str | None:
+        if method.strip().upper() != "GET":
+            return None
+
+        query_keys: set[str] = set()
+
+        split_path = urlsplit(path)
+        for key, _ in parse_qsl(split_path.query, keep_blank_values=True):
+            query_keys.add(key)
+
+        if params:
+            for key, value in params.items():
+                if value is None:
+                    continue
+                query_keys.add(str(key))
+
+        if "q" in query_keys:
+            return "FINDER"
+        if "ids" in query_keys:
+            return "BATCH_GET"
+        return None
 
 
 def _safe_json(response: httpx.Response) -> dict[str, Any]:

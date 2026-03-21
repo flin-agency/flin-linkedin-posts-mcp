@@ -11,6 +11,7 @@ from .tools.campaign_groups import get_campaign_group, list_campaign_groups
 from .tools.campaigns import get_campaign, list_campaigns
 from .tools.creatives import get_creative, list_creatives
 from .tools.insights import get_insights
+from .tools.share_content import get_share_content
 
 ToolHandler = Callable[[LinkedInClient, LinkedInAdsSettings, dict[str, Any]], dict[str, Any]]
 
@@ -51,6 +52,11 @@ TOOL_HANDLERS: dict[str, ToolHandler] = {
         arguments=arguments,
     ),
     "get_creative": lambda client, settings, arguments: get_creative(
+        client=client,
+        settings=settings,
+        arguments=arguments,
+    ),
+    "get_share_content": lambda client, settings, arguments: get_share_content(
         client=client,
         settings=settings,
         arguments=arguments,

@@ -55,6 +55,26 @@ def test_get_json_uses_required_linkedin_headers() -> None:
 
 
 @respx.mock
+def test_get_json_sets_finder_method_header_for_finder_queries() -> None:
+    route = respx.get("https://api.linkedin.com/rest/adAccounts").mock(
+        return_value=httpx.Response(200, json={"elements": []})
+    )
+
+    client = LinkedInClient(
+        access_token="token",
+        api_version="202602",
+        restli_protocol_version="2.0.0",
+        timeout_seconds=10,
+        max_retries=1,
+    )
+    client.get_json("adAccounts?q=search&pageSize=10", params={})
+
+    assert len(route.calls) == 1
+    request = route.calls[0].request
+    assert request.headers.get("X-RestLi-Method") == "FINDER"
+
+
+@respx.mock
 def test_get_json_preserves_query_from_path_when_params_are_empty_dict() -> None:
     route = respx.get("https://api.linkedin.com/rest/adAnalytics").mock(
         return_value=httpx.Response(200, json={"elements": []})

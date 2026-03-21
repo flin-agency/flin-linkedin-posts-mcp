@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from urllib.parse import quote
 
 from ..config import LinkedInAdsSettings
@@ -186,6 +186,10 @@ MAX_INSIGHT_FIELDS = 20
 FIELD_ALIASES = {
     "pivotValue": "pivotValues",
 }
+DERIVED_INSIGHT_FIELDS: dict[str, tuple[str, ...]] = {
+    "clickThroughRate": ("clicks", "impressions"),
+    "costPerClick": ("costInLocalCurrency", "clicks"),
+}
 
 ALLOWED_CAMPAIGN_TYPES = {
     "TEXT_AD",
@@ -241,8 +245,9 @@ def get_insights(
 ) -> dict[str, Any]:
     normalized_pivot, api_pivot = _normalize_pivot(arguments.get("pivot"))
 
+    requested_fields, output_fields_csv, derived_fields = _prepare_requested_fields(arguments.get("fields"))
     fields_csv = resolve_fields(
-        _normalize_requested_fields(arguments.get("fields")),
+        requested_fields,
         default_fields=DEFAULT_INSIGHT_FIELDS,
         allowed_fields=ALLOWED_INSIGHT_FIELDS,
         max_fields=MAX_INSIGHT_FIELDS,
@@ -279,10 +284,14 @@ def get_insights(
     if payload is None:
         raise RuntimeError("Unable to fetch insights from adAnalytics")
 
+    if derived_fields:
+        payload = _inject_derived_metrics(payload=payload, derived_fields=derived_fields)
+
     return build_collection_response(
         payload=payload,
         api_version=settings.api_version,
         request_id=getattr(client, "last_request_id", None),
+        fields_csv=output_fields_csv,
     )
 
 
@@ -601,6 +610,101 @@ def _normalize_requested_fields(value: Any) -> Any:
             continue
         normalized.append(item)
     return normalized
+
+
+def _prepare_requested_fields(value: Any) -> tuple[Any, str | None, set[str]]:
+    normalized = _normalize_requested_fields(value)
+    if not isinstance(normalized, list):
+        return normalized, None, set()
+
+    api_fields: list[Any] = []
+    output_fields: list[str] = []
+    derived_fields: set[str] = set()
+    seen_api_fields: set[str] = set()
+    seen_output_fields: set[str] = set()
+
+    for item in normalized:
+        if not isinstance(item, str):
+            api_fields.append(item)
+            continue
+
+        if item not in seen_output_fields:
+            seen_output_fields.add(item)
+            output_fields.append(item)
+
+        dependencies = DERIVED_INSIGHT_FIELDS.get(item)
+        if dependencies is None:
+            if item not in seen_api_fields:
+                seen_api_fields.add(item)
+                api_fields.append(item)
+            continue
+
+        derived_fields.add(item)
+        for dependency in dependencies:
+            if dependency in seen_api_fields:
+                continue
+            seen_api_fields.add(dependency)
+            api_fields.append(dependency)
+
+    output_fields_csv = ",".join(output_fields) if output_fields else None
+    return api_fields, output_fields_csv, derived_fields
+
+
+def _inject_derived_metrics(*, payload: dict[str, Any], derived_fields: set[str]) -> dict[str, Any]:
+    elements = payload.get("elements")
+    if not isinstance(elements, list):
+        return payload
+
+    normalized_elements: list[Any] = []
+    for item in elements:
+        if not isinstance(item, Mapping):
+            normalized_elements.append(item)
+            continue
+
+        row = dict(item)
+
+        if "clickThroughRate" in derived_fields:
+            row["clickThroughRate"] = _safe_ratio(
+                numerator=_to_float(row.get("clicks")),
+                denominator=_to_float(row.get("impressions")),
+            )
+
+        if "costPerClick" in derived_fields:
+            row["costPerClick"] = _safe_ratio(
+                numerator=_to_float(row.get("costInLocalCurrency")),
+                denominator=_to_float(row.get("clicks")),
+            )
+
+        normalized_elements.append(row)
+
+    payload["elements"] = normalized_elements
+    return payload
+
+
+def _to_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str):
+        return None
+
+    clean_value = value.strip()
+    if not clean_value:
+        return None
+
+    try:
+        return float(clean_value)
+    except ValueError:
+        return None
+
+
+def _safe_ratio(*, numerator: float | None, denominator: float | None) -> float | None:
+    if numerator is None or denominator is None:
+        return None
+    if denominator <= 0:
+        return None
+    return numerator / denominator
 
 
 def _is_query_shape_error(error: LinkedInValidationError) -> bool:

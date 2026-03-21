@@ -119,6 +119,19 @@ def tool_specs() -> list[ToolSpec]:
             },
         ),
         ToolSpec(
+            name="get_share_content",
+            description="Resolve LinkedIn share content and image URLs by share URN",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "share_urn": {"type": "string", "pattern": SHARE_URN_PATTERN},
+                    "include_raw": {"type": "boolean"},
+                },
+                "required": ["share_urn"],
+                "additionalProperties": False,
+            },
+        ),
+        ToolSpec(
             name="get_insights",
             description="Fetch LinkedIn ads analytics",
             input_schema={

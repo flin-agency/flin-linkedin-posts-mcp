@@ -10,6 +10,7 @@ Er ist dafür gebaut, direkt in Claude über MCP eingebunden und getestet zu wer
 - Campaign Groups lesen
 - Campaigns lesen
 - Creatives lesen
+- Share-Content lesen (`get_share_content`, best effort für Bild-URLs)
 - Insights/Analytics lesen
 - Company Intelligence lesen (`/accountIntelligence`, private API Access nötig)
 - Keine Schreiboperationen in `v0.1.x`
@@ -116,6 +117,7 @@ Wichtigste Parameter:
 - `pivot`: z. B. `account`, `campaign_group`, `campaign`, `creative`, `member_company_size`, `member_industry`, `member_seniority`, `member_job_title`, `member_job_function`, `member_country_v2`, `member_region_v2`, `member_company`, `member_county`, `share`, `company`, `conversion`
 - `time_granularity`: `DAILY`, `MONTHLY`, `ALL`, `YEARLY`
 - `fields`: Liste aus der offiziellen Metrics-Tabelle, maximal 20 Einträge, case-sensitive
+  - Kompatibilitätsfelder: `pivotValue` → `pivotValues`, `clickThroughRate` (berechnet als `clicks / impressions`), `costPerClick` (berechnet als `costInLocalCurrency / clicks`)
 - `date_from`: `YYYY-MM-DD` (Pflicht)
 - `date_to`: optional, `YYYY-MM-DD`
 
@@ -129,6 +131,24 @@ Facets/Filter:
 Kompatibilität:
 
 - `entity_ids` bleibt für Backward-Kompatibilität erhalten (z. B. bei `pivot=campaign`).
+
+## `list_creatives` / `get_creative` Bild-URL (optional)
+
+Für Creative-Calls kann optional das Derived-Field `imageUrl` in `fields` angefordert werden.
+
+- `imageUrl` wird bevorzugt direkt aus dem Creative-`content` extrahiert.
+- Falls dort keine Bild-URL enthalten ist und eine Share-Referenz vorhanden ist, versucht der MCP zusätzlich eine Auflösung über die referenzierte Share/Post-Entity.
+- Wenn keine Bild-URL auflösbar ist, ist `imageUrl` `null`.
+
+Beispiel:
+
+```json
+{
+  "ad_account_id": "508834004",
+  "id": "urn:li:sponsoredCreative:935973186",
+  "fields": ["id", "name", "imageUrl"]
+}
+```
 
 ## `list_account_intelligence` (202603)
 
@@ -160,6 +180,34 @@ Beispiel:
   "ad_account_id": "508834004",
   "lookback_window": "LAST_30_DAYS",
   "page_size": 100
+}
+```
+
+## `get_share_content` (best effort)
+
+Neues Tool:
+
+- `get_share_content`
+
+Wichtige Parameter:
+
+- `share_urn` (Pflicht, Format `urn:li:share:<id>`)
+- `include_raw` (optional, `true` gibt zusätzlich das rohe API-Payload zurück)
+
+Response enthält u. a.:
+
+- `share_urn`, `source_endpoint` (`shares` oder `posts`)
+- `post_url` (LinkedIn Feed URL)
+- `text`
+- `image_url` (erstes gefundenes Bild oder `null`)
+- `image_urls`, `thumbnail_urls`
+
+Beispiel:
+
+```json
+{
+  "share_urn": "urn:li:share:7379073146093568000",
+  "include_raw": false
 }
 ```
 

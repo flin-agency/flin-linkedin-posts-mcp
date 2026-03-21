@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from urllib.parse import unquote
 
 import pytest
 
@@ -9,8 +10,9 @@ from flin_linkedin_ads_mcp.errors import LinkedInValidationError
 from flin_linkedin_ads_mcp.errors import AccountSelectionRequired
 from flin_linkedin_ads_mcp.tools.account_intelligence import list_account_intelligence
 from flin_linkedin_ads_mcp.tools.campaigns import get_campaign, list_campaigns
-from flin_linkedin_ads_mcp.tools.creatives import get_creative
+from flin_linkedin_ads_mcp.tools.creatives import get_creative, list_creatives
 from flin_linkedin_ads_mcp.tools.insights import get_insights
+from flin_linkedin_ads_mcp.tools.share_content import get_share_content
 
 
 @dataclass
@@ -33,6 +35,14 @@ class DummyClient:
             }
         if path.endswith("/creatives"):
             return {"elements": [{"id": "urn:li:sponsoredCreative:999", "name": "Creative"}]}
+        if "/creatives/" in path:
+            encoded_id = path.rsplit("/", 1)[-1]
+            return {
+                "id": unquote(encoded_id),
+                "name": "Creative",
+                "campaign": "urn:li:sponsoredCampaign:469031486",
+                "content": {"reference": "urn:li:share:123"},
+            }
         if path.startswith("accountIntelligence?"):
             return {
                 "elements": [
@@ -206,6 +216,59 @@ def test_get_insights_accepts_pivot_value_alias(settings: LinkedInAdsSettings) -
     assert result["ok"] is True
     path, _ = client.calls[1]
     assert "fields=impressions,pivotValues" in path
+
+
+def test_get_insights_accepts_ctr_and_cpc_compat_fields(settings: LinkedInAdsSettings) -> None:
+    class DerivedMetricsClient(DummyClient):
+        def get_json(self, path: str, params: dict | None) -> dict:
+            self.calls.append((path, dict(params or {})))
+            if path == "adAccounts":
+                return {"elements": [{"id": 508834004, "name": "Account"}]}
+            return {
+                "elements": [
+                    {
+                        "impressions": 100,
+                        "clicks": 5,
+                        "costInLocalCurrency": "12.5",
+                        "pivotValues": ["urn:li:sponsoredCreative:999"],
+                    }
+                ]
+            }
+
+    client = DerivedMetricsClient(calls=[])
+
+    result = get_insights(
+        client=client,
+        settings=settings,
+        arguments={
+            "ad_account_id": "508834004",
+            "pivot": "creative",
+            "date_from": "2025-12-01",
+            "date_to": "2025-12-31",
+            "time_granularity": "ALL",
+            "fields": [
+                "costInLocalCurrency",
+                "impressions",
+                "clicks",
+                "clickThroughRate",
+                "costPerClick",
+                "pivotValue",
+            ],
+            "sort_by_field": "IMPRESSIONS",
+            "sort_order": "DESCENDING",
+        },
+    )
+
+    assert result["ok"] is True
+    path, _ = client.calls[0]
+    assert "fields=costInLocalCurrency,impressions,clicks,pivotValues" in path
+    assert "clickThroughRate" not in path
+    assert "costPerClick" not in path
+
+    row = result["data"][0]
+    assert row["clickThroughRate"] == pytest.approx(0.05)
+    assert row["costPerClick"] == pytest.approx(2.5)
+    assert row["pivotValues"] == ["urn:li:sponsoredCreative:999"]
 
 
 def test_get_insights_accepts_yearly_time_granularity(settings: LinkedInAdsSettings) -> None:
@@ -477,3 +540,280 @@ def test_get_creative_rejects_invalid_id(settings: LinkedInAdsSettings) -> None:
 
     with pytest.raises(ValueError, match="sponsoredCreative"):
         get_creative(client=client, settings=settings, arguments={"id": "../bad"})
+
+
+def test_list_creatives_preserves_restli_delimiters_for_creatives_filter(settings: LinkedInAdsSettings) -> None:
+    client = DummyClient(calls=[])
+
+    result = list_creatives(
+        client=client,
+        settings=settings,
+        arguments={
+            "ad_account_id": "508834004",
+            "creative_ids": ["935973186", "892320746", "892350816", "935963196"],
+            "fields": ["id", "name", "campaign", "content"],
+        },
+    )
+
+    assert result["ok"] is True
+    path, params = client.calls[0]
+    assert path.startswith("adAccounts/508834004/creatives?")
+    assert "q=criteria" in path
+    assert (
+        "creatives=List(urn%3Ali%3AsponsoredCreative%3A935973186,urn%3Ali%3AsponsoredCreative%3A892320746,urn%3Ali%3AsponsoredCreative%3A892350816,urn%3Ali%3AsponsoredCreative%3A935963196)"
+        in path
+    )
+    assert "%2C" not in path
+    assert params == {}
+
+
+def test_get_creative_uses_entity_endpoint_with_encoded_urn(settings: LinkedInAdsSettings) -> None:
+    client = DummyClient(calls=[])
+
+    result = get_creative(
+        client=client,
+        settings=settings,
+        arguments={"ad_account_id": "508834004", "id": "935973186", "fields": ["id", "name", "campaign"]},
+    )
+
+    assert result["ok"] is True
+    path, params = client.calls[0]
+    assert path == "adAccounts/508834004/creatives/urn%3Ali%3AsponsoredCreative%3A935973186"
+    assert params == {}
+    assert result["data"] == {
+        "id": "urn:li:sponsoredCreative:935973186",
+        "name": "Creative",
+        "campaign": "urn:li:sponsoredCampaign:469031486",
+    }
+
+
+def test_get_creative_supports_optional_image_url_field(settings: LinkedInAdsSettings) -> None:
+    class CreativeImageClient(DummyClient):
+        def get_json(self, path: str, params: dict | None) -> dict:
+            self.calls.append((path, dict(params or {})))
+            if "/creatives/" in path:
+                return {
+                    "id": "urn:li:sponsoredCreative:935973186",
+                    "name": "Creative",
+                    "content": {
+                        "contentEntities": [
+                            {
+                                "thumbnails": [
+                                    {
+                                        "resolvedUrl": "https://media.licdn.com/dms/image/C4D12AQF/test-image.jpg"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                }
+            return super().get_json(path, params)
+
+    client = CreativeImageClient(calls=[])
+
+    result = get_creative(
+        client=client,
+        settings=settings,
+        arguments={"ad_account_id": "508834004", "id": "935973186", "fields": ["id", "name", "imageUrl"]},
+    )
+
+    assert result["ok"] is True
+    assert result["data"] == {
+        "id": "urn:li:sponsoredCreative:935973186",
+        "name": "Creative",
+        "imageUrl": "https://media.licdn.com/dms/image/C4D12AQF/test-image.jpg",
+    }
+    called_paths = [path for path, _ in client.calls]
+    assert not any(path.startswith("shares/") or path.startswith("posts/") for path in called_paths)
+
+
+def test_get_creative_resolves_image_url_from_share_reference(settings: LinkedInAdsSettings) -> None:
+    class ShareReferenceClient(DummyClient):
+        def get_json(self, path: str, params: dict | None) -> dict:
+            self.calls.append((path, dict(params or {})))
+            if "/creatives/" in path:
+                return {
+                    "id": "urn:li:sponsoredCreative:935973186",
+                    "content": {"reference": "urn:li:share:123"},
+                }
+            if path == "shares/urn%3Ali%3Ashare%3A123":
+                return {
+                    "content": {
+                        "contentEntities": [
+                            {
+                                "thumbnails": [
+                                    {"resolvedUrl": "https://media.licdn.com/dms/image/C4D12AQF/from-share.png"}
+                                ]
+                            }
+                        ]
+                    }
+                }
+            return super().get_json(path, params)
+
+    client = ShareReferenceClient(calls=[])
+
+    result = get_creative(
+        client=client,
+        settings=settings,
+        arguments={"ad_account_id": "508834004", "id": "935973186", "fields": ["id", "imageUrl"]},
+    )
+
+    assert result["ok"] is True
+    assert result["data"] == {
+        "id": "urn:li:sponsoredCreative:935973186",
+        "imageUrl": "https://media.licdn.com/dms/image/C4D12AQF/from-share.png",
+    }
+    assert any(path == "shares/urn%3Ali%3Ashare%3A123" for path, _ in client.calls)
+
+
+def test_list_creatives_supports_optional_image_url_field(settings: LinkedInAdsSettings) -> None:
+    class ListCreativeImageClient(DummyClient):
+        def get_json(self, path: str, params: dict | None) -> dict:
+            self.calls.append((path, dict(params or {})))
+            if path.startswith("adAccounts/508834004/creatives?"):
+                return {
+                    "elements": [
+                        {
+                            "id": "urn:li:sponsoredCreative:935973186",
+                            "content": {
+                                "contentEntities": [
+                                    {
+                                        "thumbnails": [
+                                            {
+                                                "resolvedUrl": "https://media.licdn.com/dms/image/C4D12AQF/list-image.webp"
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            return super().get_json(path, params)
+
+    client = ListCreativeImageClient(calls=[])
+
+    result = list_creatives(
+        client=client,
+        settings=settings,
+        arguments={"ad_account_id": "508834004", "fields": ["id", "imageUrl"]},
+    )
+
+    assert result["ok"] is True
+    assert result["data"] == [
+        {
+            "id": "urn:li:sponsoredCreative:935973186",
+            "imageUrl": "https://media.licdn.com/dms/image/C4D12AQF/list-image.webp",
+        }
+    ]
+
+
+def test_get_share_content_extracts_image_url(settings: LinkedInAdsSettings) -> None:
+    class ShareContentClient(DummyClient):
+        def get_json(self, path: str, params: dict | None) -> dict:
+            self.calls.append((path, dict(params or {})))
+            if path == "shares/urn%3Ali%3Ashare%3A7379073146093568000":
+                return {
+                    "id": "urn:li:share:7379073146093568000",
+                    "commentary": {"text": "Creative post text"},
+                    "content": {
+                        "contentEntities": [
+                            {
+                                "thumbnails": [
+                                    {"resolvedUrl": "https://media.licdn.com/dms/image/D5603AQH/share-thumb.jpg"}
+                                ],
+                                "landingPageUrl": "https://example.com",
+                            }
+                        ]
+                    },
+                }
+            return super().get_json(path, params)
+
+    client = ShareContentClient(calls=[])
+
+    result = get_share_content(
+        client=client,
+        settings=settings,
+        arguments={"share_urn": "urn:li:share:7379073146093568000"},
+    )
+
+    assert result["ok"] is True
+    assert result["data"] == {
+        "share_urn": "urn:li:share:7379073146093568000",
+        "source_endpoint": "shares",
+        "post_url": "https://www.linkedin.com/feed/update/urn:li:share:7379073146093568000",
+        "text": "Creative post text",
+        "image_url": "https://media.licdn.com/dms/image/D5603AQH/share-thumb.jpg",
+        "image_urls": ["https://media.licdn.com/dms/image/D5603AQH/share-thumb.jpg"],
+        "thumbnail_urls": ["https://media.licdn.com/dms/image/D5603AQH/share-thumb.jpg"],
+    }
+
+
+def test_get_share_content_falls_back_to_posts_endpoint(settings: LinkedInAdsSettings) -> None:
+    class ShareFallbackClient(DummyClient):
+        def get_json(self, path: str, params: dict | None) -> dict:
+            self.calls.append((path, dict(params or {})))
+            if path == "shares/urn%3Ali%3Ashare%3A7379073146093568000":
+                raise LinkedInValidationError(
+                    "Not found",
+                    status_code=404,
+                    details={"status_code": 404, "error": {"message": "Not found"}},
+                )
+            if path == "posts/urn%3Ali%3Ashare%3A7379073146093568000":
+                return {
+                    "id": "urn:li:share:7379073146093568000",
+                    "commentary": {"text": "Fallback text"},
+                    "content": {
+                        "media": {"url": "https://media.licdn.com/dms/image/C5605AQH/post-image.png"}
+                    },
+                }
+            return super().get_json(path, params)
+
+    client = ShareFallbackClient(calls=[])
+
+    result = get_share_content(
+        client=client,
+        settings=settings,
+        arguments={"share_urn": "urn:li:share:7379073146093568000"},
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["source_endpoint"] == "posts"
+    assert result["data"]["image_url"] == "https://media.licdn.com/dms/image/C5605AQH/post-image.png"
+    called_paths = [path for path, _ in client.calls]
+    assert called_paths[0] == "shares/urn%3Ali%3Ashare%3A7379073146093568000"
+    assert called_paths[1] == "posts/urn%3Ali%3Ashare%3A7379073146093568000"
+
+
+def test_get_share_content_include_raw_payload(settings: LinkedInAdsSettings) -> None:
+    class ShareRawClient(DummyClient):
+        def get_json(self, path: str, params: dict | None) -> dict:
+            self.calls.append((path, dict(params or {})))
+            if path == "shares/urn%3Ali%3Ashare%3A7379073146093568000":
+                return {"id": "urn:li:share:7379073146093568000", "commentary": {"text": "Raw text"}}
+            return super().get_json(path, params)
+
+    client = ShareRawClient(calls=[])
+
+    result = get_share_content(
+        client=client,
+        settings=settings,
+        arguments={"share_urn": "urn:li:share:7379073146093568000", "include_raw": True},
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["raw"] == {
+        "id": "urn:li:share:7379073146093568000",
+        "commentary": {"text": "Raw text"},
+    }
+
+
+def test_get_share_content_rejects_invalid_share_urn(settings: LinkedInAdsSettings) -> None:
+    client = DummyClient(calls=[])
+
+    with pytest.raises(ValueError, match="share URN"):
+        get_share_content(
+            client=client,
+            settings=settings,
+            arguments={"share_urn": "urn:li:sponsoredCreative:123"},
+        )
