@@ -183,6 +183,9 @@ ALLOWED_INSIGHT_FIELDS = {
 }
 
 MAX_INSIGHT_FIELDS = 20
+FIELD_ALIASES = {
+    "pivotValue": "pivotValues",
+}
 
 ALLOWED_CAMPAIGN_TYPES = {
     "TEXT_AD",
@@ -239,7 +242,7 @@ def get_insights(
     normalized_pivot, api_pivot = _normalize_pivot(arguments.get("pivot"))
 
     fields_csv = resolve_fields(
-        arguments.get("fields"),
+        _normalize_requested_fields(arguments.get("fields")),
         default_fields=DEFAULT_INSIGHT_FIELDS,
         allowed_fields=ALLOWED_INSIGHT_FIELDS,
         max_fields=MAX_INSIGHT_FIELDS,
@@ -586,6 +589,18 @@ def _normalize_choice(value: Any, *, parameter_name: str, allowed: set[str]) -> 
     if clean_value not in allowed:
         raise ValueError(f"{parameter_name} must be one of: {', '.join(sorted(allowed))}")
     return clean_value
+
+
+def _normalize_requested_fields(value: Any) -> Any:
+    if not isinstance(value, list):
+        return value
+    normalized: list[Any] = []
+    for item in value:
+        if isinstance(item, str):
+            normalized.append(FIELD_ALIASES.get(item, item))
+            continue
+        normalized.append(item)
+    return normalized
 
 
 def _is_query_shape_error(error: LinkedInValidationError) -> bool:

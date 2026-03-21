@@ -194,6 +194,20 @@ def test_get_insights_accepts_extended_reporting_fields(settings: LinkedInAdsSet
     assert "fields=totalEngagements,oneClickLeads,costInUsd" in path
 
 
+def test_get_insights_accepts_pivot_value_alias(settings: LinkedInAdsSettings) -> None:
+    client = DummyClient(calls=[])
+
+    result = get_insights(
+        client=client,
+        settings=settings,
+        arguments={"pivot": "campaign", "date_from": "2025-01-01", "fields": ["impressions", "pivotValue"]},
+    )
+
+    assert result["ok"] is True
+    path, _ = client.calls[1]
+    assert "fields=impressions,pivotValues" in path
+
+
 def test_get_insights_accepts_yearly_time_granularity(settings: LinkedInAdsSettings) -> None:
     client = DummyClient(calls=[])
 
