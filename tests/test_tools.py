@@ -81,8 +81,9 @@ def test_get_insights_passes_entity_filters(settings: LinkedInAdsSettings) -> No
     path, params = client.calls[1]
     assert path.startswith("adAnalytics?")
     assert "q=analytics" in path
-    assert "pivot=CAMPAIGN" in path
-    assert "campaigns=List(urn:li:sponsoredCampaign:123,urn:li:sponsoredCampaign:456)" in path
+    assert "pivot.value=CAMPAIGN" in path
+    assert "timeGranularity.value=DAILY" in path
+    assert "campaigns=List(urn%3Ali%3AsponsoredCampaign%3A123,urn%3Ali%3AsponsoredCampaign%3A456)" in path
     assert "fields=account_id,campaign_id,adset_id,ad_id,impressions,clicks,spend,reach,frequency,cpc,ctr" not in path
     assert "%2C" not in path
     assert params == {}
@@ -165,6 +166,82 @@ def test_get_insights_accepts_extended_reporting_fields(settings: LinkedInAdsSet
     assert result["ok"] is True
     path, _ = client.calls[1]
     assert "fields=totalEngagements,oneClickLeads,costInUsd" in path
+
+
+def test_get_insights_accepts_yearly_time_granularity(settings: LinkedInAdsSettings) -> None:
+    client = DummyClient(calls=[])
+
+    result = get_insights(
+        client=client,
+        settings=settings,
+        arguments={"pivot": "campaign", "time_granularity": "YEARLY", "fields": ["impressions", "clicks"]},
+    )
+
+    assert result["ok"] is True
+    path, _ = client.calls[1]
+    assert "timeGranularity.value=YEARLY" in path
+
+
+def test_get_insights_accepts_member_demographic_pivot(settings: LinkedInAdsSettings) -> None:
+    client = DummyClient(calls=[])
+
+    result = get_insights(
+        client=client,
+        settings=settings,
+        arguments={"pivot": "member_company_size", "fields": ["impressions", "costInLocalCurrency"]},
+    )
+
+    assert result["ok"] is True
+    path, _ = client.calls[1]
+    assert "pivot.value=MEMBER_COMPANY_SIZE" in path
+
+
+def test_get_insights_accepts_action_clicks_metric(settings: LinkedInAdsSettings) -> None:
+    client = DummyClient(calls=[])
+
+    result = get_insights(
+        client=client,
+        settings=settings,
+        arguments={"pivot": "campaign", "fields": ["impressions", "actionClicks"]},
+    )
+
+    assert result["ok"] is True
+    path, _ = client.calls[1]
+    assert "fields=impressions,actionClicks" in path
+
+
+def test_get_insights_rejects_more_than_20_fields(settings: LinkedInAdsSettings) -> None:
+    client = DummyClient(calls=[])
+    fields = [
+        "actionClicks",
+        "adUnitClicks",
+        "approximateMemberReach",
+        "averageDwellTime",
+        "audiencePenetration",
+        "cardClicks",
+        "cardImpressions",
+        "clicks",
+        "commentLikes",
+        "comments",
+        "companyPageClicks",
+        "conversionValueInLocalCurrency",
+        "costInLocalCurrency",
+        "costInUsd",
+        "costPerQualifiedLead",
+        "dateRange",
+        "documentCompletions",
+        "documentFirstQuartileCompletions",
+        "documentMidpointCompletions",
+        "documentThirdQuartileCompletions",
+        "downloadClicks",
+    ]
+
+    with pytest.raises(ValueError, match="at most 20"):
+        get_insights(
+            client=client,
+            settings=settings,
+            arguments={"pivot": "campaign", "fields": fields},
+        )
 
 
 def test_get_creative_rejects_invalid_id(settings: LinkedInAdsSettings) -> None:

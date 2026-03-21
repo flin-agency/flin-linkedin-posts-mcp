@@ -84,8 +84,68 @@ Wenn `list_campaigns` eine Auswahl zurückgibt, den Call mit einem vorgeschlagen
 Hinweis zu `get_insights`:
 
 - Der MCP nutzt den LinkedIn `analytics` Finder mit Single-Pivot.
-- Unterstützte `fields` decken die gängigen LinkedIn Analytics-Metriken ab (z. B. `impressions`, `clicks`, `costInLocalCurrency`, `landingPageClicks`, `totalEngagements`, `oneClickLeads`).
-- Falls LinkedIn neue Felder hinzufügt, können diese API-seitig trotzdem noch abweichen.
+- Implementierung ist auf die Dokumentation `view=li-lms-2026-03` ausgerichtet.
+- Unterstützte `fields` folgen der Metrics-Tabelle aus der offiziellen Reporting-Schema-Doku (max. 20 Felder pro Request).
+- Der Server nutzt intern `pivot.value` / `timeGranularity.value` und hat zusätzlich einen Fallback auf Legacy-Parameternamen für bessere API-Kompatibilität.
+
+Beispiel für einen stabilen Test-Call:
+
+```json
+{
+  "ad_account_id": "508834004",
+  "date_from": "2025-08-01",
+  "date_to": "2025-12-31",
+  "fields": [
+    "impressions",
+    "clicks",
+    "costInLocalCurrency",
+    "dateRange"
+  ],
+  "pivot": "account",
+  "time_granularity": "MONTHLY"
+}
+```
+
+## `get_insights` Parameter (2026-03)
+
+Wichtigste Parameter:
+
+- `pivot`: z. B. `account`, `campaign_group`, `campaign`, `creative`, `member_company_size`, `member_industry`, `member_seniority`, `member_job_title`, `member_job_function`, `member_country_v2`, `member_region_v2`, `member_company`, `member_county`, `share`, `company`, `conversion`
+- `time_granularity`: `DAILY`, `MONTHLY`, `ALL`, `YEARLY`
+- `fields`: Liste aus der offiziellen Metrics-Tabelle, maximal 20 Einträge, case-sensitive
+- `date_from`: `YYYY-MM-DD`
+- `date_to`: optional, `YYYY-MM-DD`
+
+Facets/Filter:
+
+- `ad_account_id` (ein Konto) oder `account_ids` (mehrere Konten)
+- optional zusätzlich: `campaign_ids`, `campaign_group_ids`, `creative_ids`, `share_ids`, `company_ids`
+- optional: `campaign_type`, `objective_type`
+- optional Sortierung: `sort_by_field` + `sort_order` (müssen zusammen angegeben werden)
+
+Kompatibilität:
+
+- `entity_ids` bleibt für Backward-Kompatibilität erhalten (z. B. bei `pivot=campaign`).
+
+## Troubleshooting `get_insights`
+
+Bei `ILLEGAL_ARGUMENT` oder `RESOURCE_NOT_FOUND` bitte prüfen:
+
+1. Feldnamen sind exakt korrekt (`clicks` statt `click`, `impressions` statt `impression`).
+2. Maximal 20 `fields`.
+3. Mindestens ein gültiger Facet-Filter (`ad_account_id`/`account_ids` oder andere Facets).
+4. IDs im korrekten Format (Account/Campaign/Campaign Group/Creative numerisch oder URN; `share_ids` und `company_ids` als URN).
+5. Datum im Format `YYYY-MM-DD`.
+6. `pivot` ist einer der dokumentierten Werte (siehe oben).
+
+Schneller API-Gegencheck (ohne MCP) für das Token:
+
+```bash
+curl -i 'https://api.linkedin.com/rest/adAccounts?q=search&pageSize=1' \
+  -H 'Authorization: Bearer DEIN_ACCESS_TOKEN' \
+  -H 'Linkedin-Version: 202602' \
+  -H 'X-Restli-Protocol-Version: 2.0.0'
+```
 
 ## LinkedIn Access Token generieren (Schritt für Schritt)
 
@@ -266,7 +326,9 @@ git push origin main --tags
   - https://learn.microsoft.com/en-us/linkedin/shared/authentication/authentication
 - Authorization Code Flow (native clients):
   - https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow-native
-- Marketing Ads API Permissions (`r_ads` / `rw_ads`):
-  - https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads/account-structure/create-and-manage-creatives?view=li-lms-2026-02
+- Reporting (Ad Analytics):
+  - https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting?view=li-lms-2026-03
+- Reporting Schema (Metrics + Query Parameters):
+  - https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting-schema?view=li-lms-2026-03
 - Programmatic Refresh Tokens:
   - https://learn.microsoft.com/en-us/linkedin/shared/authentication/programmatic-refresh-tokens

@@ -19,6 +19,8 @@ CAMPAIGN_GROUP_ID_PATTERN = re.compile(r"^(?:urn:li:sponsoredCampaignGroup:)?([0
 CAMPAIGN_ID_PATTERN = re.compile(r"^(?:urn:li:sponsoredCampaign:)?([0-9]+)$")
 CREATIVE_URN_PATTERN = re.compile(r"^urn:li:sponsoredCreative:[0-9]+$")
 CREATIVE_ID_PATTERN = re.compile(r"^(?:urn:li:sponsoredCreative:)?([0-9]+)$")
+SHARE_URN_PATTERN = re.compile(r"^urn:li:share:[0-9]+$")
+ORGANIZATION_URN_PATTERN = re.compile(r"^urn:li:organization:[0-9]+$")
 FIELD_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_.]*$")
 DATE_PATTERN = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
@@ -58,6 +60,24 @@ def normalize_creative_urn(value: str, *, parameter_name: str = "id") -> str:
     return f"urn:li:sponsoredCreative:{match.group(1)}"
 
 
+def normalize_share_urn(value: str, *, parameter_name: str = "id") -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{parameter_name} must be a string")
+    clean_value = value.strip()
+    if not SHARE_URN_PATTERN.fullmatch(clean_value):
+        raise ValueError(f"{parameter_name} must be a share URN (urn:li:share:<id>)")
+    return clean_value
+
+
+def normalize_organization_urn(value: str, *, parameter_name: str = "id") -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{parameter_name} must be a string")
+    clean_value = value.strip()
+    if not ORGANIZATION_URN_PATTERN.fullmatch(clean_value):
+        raise ValueError(f"{parameter_name} must be an organization URN (urn:li:organization:<id>)")
+    return clean_value
+
+
 def validate_date(value: str, *, parameter_name: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{parameter_name} must be a string in YYYY-MM-DD format")
@@ -90,12 +110,13 @@ def resolve_fields(
     *,
     default_fields: Iterable[str],
     allowed_fields: Iterable[str],
+    max_fields: int = MAX_FIELDS,
 ) -> str:
     selected = list(default_fields) if fields is None else list(fields)
     if not selected:
         raise ValueError("fields must not be empty")
-    if len(selected) > MAX_FIELDS:
-        raise ValueError(f"fields must contain at most {MAX_FIELDS} entries")
+    if len(selected) > max_fields:
+        raise ValueError(f"fields must contain at most {max_fields} entries")
 
     allowed = set(allowed_fields)
     resolved: list[str] = []
@@ -229,18 +250,30 @@ def date_range_to_restli(*, date_from: str, date_to: str) -> str:
 
 
 def build_insights_selector(pivot: str, entity_ids: list[str]) -> tuple[str, str]:
-    if pivot == "account":
+    normalized_pivot = pivot.strip().lower().replace("-", "_")
+
+    if normalized_pivot == "account":
         urns = [to_account_urn(normalize_account_id(entity_id)) for entity_id in entity_ids]
         return "accounts", to_restli_list(urns)
-    if pivot == "campaign_group":
+    if normalized_pivot == "campaign_group":
         urns = [to_campaign_group_urn(normalize_campaign_group_id(entity_id)) for entity_id in entity_ids]
         return "campaignGroups", to_restli_list(urns)
-    if pivot == "campaign":
+    if normalized_pivot == "campaign":
         urns = [to_campaign_urn(normalize_campaign_id(entity_id)) for entity_id in entity_ids]
         return "campaigns", to_restli_list(urns)
+    if normalized_pivot == "creative":
+        urns = [normalize_creative_urn(entity_id) for entity_id in entity_ids]
+        return "creatives", to_restli_list(urns)
+    if normalized_pivot == "share":
+        urns = [normalize_share_urn(entity_id) for entity_id in entity_ids]
+        return "shares", to_restli_list(urns)
+    if normalized_pivot == "company":
+        urns = [normalize_organization_urn(entity_id) for entity_id in entity_ids]
+        return "companies", to_restli_list(urns)
 
-    urns = [normalize_creative_urn(entity_id) for entity_id in entity_ids]
-    return "creatives", to_restli_list(urns)
+    raise ValueError(
+        "entity_ids is only supported for pivots: account, campaign_group, campaign, creative, share, company"
+    )
 
 
 def _discover_single_ad_account_id(client: LinkedInClient) -> str:
