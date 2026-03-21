@@ -17,9 +17,9 @@ from .common import (
 )
 
 DEFAULT_INSIGHT_FIELDS = [
+    "costInLocalCurrency",
     "impressions",
     "clicks",
-    "spend",
     "dateRange",
     "pivotValues",
 ]
@@ -34,61 +34,22 @@ ALLOWED_PIVOTS = {
 ALLOWED_TIME_GRANULARITIES = {"DAILY", "MONTHLY", "ALL"}
 
 ALLOWED_INSIGHT_FIELDS = {
-    "spend",
-    "impressions",
-    "clicks",
     "costInLocalCurrency",
-    "costInUsd",
-    "externalWebsiteConversions",
-    "externalWebsitePostClickConversions",
-    "externalWebsitePostViewConversions",
-    "follows",
-    "fullScreenPlays",
-    "leadGenerationMailContactInfoShares",
-    "leadGenerationMailInterestedClicks",
-    "likes",
-    "oneClickLeadFormOpens",
-    "oneClickLeads",
-    "opens",
-    "pivotValues",
-    "pivotValue",
-    "sends",
-    "shares",
-    "talentLeads",
-    "totalEngagements",
-    "videoCompletions",
-    "videoFirstQuartileCompletions",
-    "videoMidpointCompletions",
-    "videoStarts",
-    "videoThirdQuartileCompletions",
-    "viralClicks",
-    "viralCommentLikes",
-    "viralComments",
-    "viralCompanyPageClicks",
-    "viralExternalWebsiteConversions",
-    "viralFollows",
-    "viralFullScreenPlays",
-    "viralImpressions",
-    "viralLikes",
-    "viralOneClickLeadFormOpens",
-    "viralOneClickLeads",
-    "viralReactions",
-    "viralShares",
-    "viralTotalEngagements",
-    "approximateUniqueImpressions",
-    "audiencePenetration",
-    "averageDwellTime",
-    "cardClicks",
-    "cardImpressions",
-    "comments",
-    "commentLikes",
-    "companyPageClicks",
-    "conversionValueInLocalCurrency",
-    "costPerConversion",
-    "costPerLead",
-    "costPerOpen",
+    "clicks",
     "dateRange",
+    "externalWebsiteConversions",
+    "impressions",
+    "landingPageClicks",
+    "likes",
+    "pivotValues",
+    "shares",
 }
+
+
+def _raw_query(params: dict[str, Any]) -> str:
+    filtered = compact_params(params)
+    segments = [f"{key}={value}" for key, value in filtered.items()]
+    return "&".join(segments)
 
 
 def get_insights(
@@ -137,7 +98,7 @@ def get_insights(
             selector_key, selector_value = build_insights_selector(pivot, entity_ids)
             params[selector_key] = selector_value
 
-    payload = client.get_json("adAnalytics", params=compact_params(params))
+    payload = client.get_json(f"adAnalytics?{_raw_query(params)}", params={})
     return build_collection_response(
         payload=payload,
         api_version=settings.api_version,

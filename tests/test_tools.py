@@ -17,8 +17,8 @@ class DummyClient:
     ad_accounts: list[str] = field(default_factory=lambda: ["111"])
     last_request_id: str | None = None
 
-    def get_json(self, path: str, params: dict) -> dict:
-        self.calls.append((path, dict(params)))
+    def get_json(self, path: str, params: dict | None) -> dict:
+        self.calls.append((path, dict(params or {})))
         if path == "adAccounts":
             return {
                 "elements": [
@@ -79,10 +79,13 @@ def test_get_insights_passes_entity_filters(settings: LinkedInAdsSettings) -> No
 
     assert result["ok"] is True
     path, params = client.calls[1]
-    assert path == "adAnalytics"
-    assert params["q"] == "analytics"
-    assert params["pivot"] == "CAMPAIGN"
-    assert params["campaigns"] == "List(urn:li:sponsoredCampaign:123,urn:li:sponsoredCampaign:456)"
+    assert path.startswith("adAnalytics?")
+    assert "q=analytics" in path
+    assert "pivot=CAMPAIGN" in path
+    assert "campaigns=List(urn:li:sponsoredCampaign:123,urn:li:sponsoredCampaign:456)" in path
+    assert "fields=account_id,campaign_id,adset_id,ad_id,impressions,clicks,spend,reach,frequency,cpc,ctr" not in path
+    assert "%2C" not in path
+    assert params == {}
 
 
 def test_list_campaigns_requires_ad_account_id_when_multiple_accounts_exist(settings: LinkedInAdsSettings) -> None:
@@ -130,6 +133,34 @@ def test_get_insights_rejects_unknown_fields(settings: LinkedInAdsSettings) -> N
             client=client,
             settings=settings,
             arguments={"pivot": "campaign", "fields": ["impressions", "not_a_real_metric"]},
+        )
+
+
+def test_get_insights_accepts_landing_page_clicks_field(settings: LinkedInAdsSettings) -> None:
+    client = DummyClient(calls=[])
+
+    result = get_insights(
+        client=client,
+        settings=settings,
+        arguments={
+            "pivot": "campaign",
+            "fields": ["impressions", "landingPageClicks", "costInLocalCurrency"],
+        },
+    )
+
+    assert result["ok"] is True
+    path, _ = client.calls[1]
+    assert "fields=impressions,landingPageClicks,costInLocalCurrency" in path
+
+
+def test_get_insights_rejects_unsupported_cost_in_usd_field(settings: LinkedInAdsSettings) -> None:
+    client = DummyClient(calls=[])
+
+    with pytest.raises(ValueError, match="Unsupported fields"):
+        get_insights(
+            client=client,
+            settings=settings,
+            arguments={"pivot": "campaign", "fields": ["impressions", "costInUsd"]},
         )
 
 
