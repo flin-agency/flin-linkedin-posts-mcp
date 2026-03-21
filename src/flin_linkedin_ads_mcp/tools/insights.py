@@ -482,7 +482,37 @@ def _analytics_query_variants(*, params: dict[str, Any], account_selector: str) 
             _append(base_alt_date_with_accounts)
             _append(_to_legacy_param_names(base_alt_date_with_accounts))
 
+    if "sortBy.field" in base or "sortBy.order" in base:
+        base_without_sort = _without_sort(base)
+        _append(base_without_sort)
+        _append(_to_legacy_param_names(base_without_sort))
+
+        if allow_accounts_fallback:
+            base_without_sort_with_accounts = dict(base_without_sort)
+            base_without_sort_with_accounts["accounts"] = account_selector
+            _append(base_without_sort_with_accounts)
+            _append(_to_legacy_param_names(base_without_sort_with_accounts))
+
+        if alternate_date_range is not None:
+            base_without_sort_alt_date = dict(base_without_sort)
+            base_without_sort_alt_date["dateRange"] = alternate_date_range
+            _append(base_without_sort_alt_date)
+            _append(_to_legacy_param_names(base_without_sort_alt_date))
+
+            if allow_accounts_fallback:
+                base_without_sort_alt_date_with_accounts = dict(base_without_sort_alt_date)
+                base_without_sort_alt_date_with_accounts["accounts"] = account_selector
+                _append(base_without_sort_alt_date_with_accounts)
+                _append(_to_legacy_param_names(base_without_sort_alt_date_with_accounts))
+
     return variants
+
+
+def _without_sort(params: dict[str, Any]) -> dict[str, Any]:
+    reduced = dict(params)
+    reduced.pop("sortBy.field", None)
+    reduced.pop("sortBy.order", None)
+    return reduced
 
 
 def _to_legacy_param_names(params: dict[str, Any]) -> dict[str, Any]:
@@ -566,12 +596,24 @@ def _is_query_shape_error(error: LinkedInValidationError) -> bool:
         return True
     if "illegal_argument" in message:
         return True
+    if "query_param_not_allowed" in message:
+        return True
 
     details_error = error.details.get("error", {})
     if isinstance(details_error, dict):
         code = str(details_error.get("code") or "").upper()
-        if code in {"RESOURCE_NOT_FOUND", "ILLEGAL_ARGUMENT"}:
+        if code in {"RESOURCE_NOT_FOUND", "ILLEGAL_ARGUMENT", "QUERY_PARAM_NOT_ALLOWED"}:
             return True
+
+        raw_error_details = details_error.get("errorDetails")
+        if isinstance(raw_error_details, dict):
+            input_errors = raw_error_details.get("inputErrors")
+            if isinstance(input_errors, list):
+                for item in input_errors:
+                    if not isinstance(item, dict):
+                        continue
+                    if str(item.get("code") or "").upper() == "QUERY_PARAM_NOT_ALLOWED":
+                        return True
 
     return False
 

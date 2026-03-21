@@ -317,6 +317,81 @@ def test_get_insights_retries_query_shapes_for_illegal_argument(settings: Linked
     assert "dateRange=(start:(day:1,month:1,year:2025),end:(day:31,month:12,year:2025))" in called_paths[-1]
 
 
+def test_get_insights_retries_when_query_params_are_not_allowed(settings: LinkedInAdsSettings) -> None:
+    class QueryParamNotAllowedFlakyClient(DummyClient):
+        def get_json(self, path: str, params: dict | None) -> dict:
+            self.calls.append((path, dict(params or {})))
+            if path == "adAccounts":
+                return {"elements": [{"id": 508834004, "name": "Account"}]}
+            if "sortBy.field=" in path or "sortBy.order=" in path:
+                raise LinkedInValidationError(
+                    "Multiple errors occurred during param validation. Please see errorDetails for more information.",
+                    status_code=400,
+                    details={
+                        "status_code": 400,
+                        "error": {
+                            "errorDetailType": "com.linkedin.common.error.BadRequest",
+                            "errorDetails": {
+                                "inputErrors": [
+                                    {"code": "QUERY_PARAM_NOT_ALLOWED", "input": {"inputPath": {"fieldPath": "sortBy.field"}}},
+                                    {"code": "QUERY_PARAM_NOT_ALLOWED", "input": {"inputPath": {"fieldPath": "sortBy.order"}}},
+                                ]
+                            },
+                            "message": "Multiple errors occurred during param validation. Please see errorDetails for more information.",
+                            "status": 400,
+                        },
+                    },
+                )
+            if "pivot.value=" in path or "timeGranularity.value=" in path:
+                raise LinkedInValidationError(
+                    "Multiple errors occurred during param validation. Please see errorDetails for more information.",
+                    status_code=400,
+                    details={
+                        "status_code": 400,
+                        "error": {
+                            "errorDetailType": "com.linkedin.common.error.BadRequest",
+                            "errorDetails": {
+                                "inputErrors": [
+                                    {"code": "QUERY_PARAM_NOT_ALLOWED", "input": {"inputPath": {"fieldPath": "pivot.value"}}},
+                                    {
+                                        "code": "QUERY_PARAM_NOT_ALLOWED",
+                                        "input": {"inputPath": {"fieldPath": "timeGranularity.value"}},
+                                    },
+                                ]
+                            },
+                            "message": "Multiple errors occurred during param validation. Please see errorDetails for more information.",
+                            "status": 400,
+                        },
+                    },
+                )
+            return {"elements": [{"impressions": 1}]}
+
+    client = QueryParamNotAllowedFlakyClient(calls=[])
+
+    result = get_insights(
+        client=client,
+        settings=settings,
+        arguments={
+            "ad_account_id": "508834004",
+            "pivot": "campaign",
+            "date_from": "2025-01-01",
+            "date_to": "2025-12-31",
+            "time_granularity": "MONTHLY",
+            "fields": ["impressions", "clicks", "costInLocalCurrency"],
+            "sort_by_field": "COST_IN_LOCAL_CURRENCY",
+            "sort_order": "DESCENDING",
+        },
+    )
+
+    assert result["ok"] is True
+    called_paths = [path for path, _ in client.calls]
+    assert len(called_paths) == 6
+    assert "pivot=CAMPAIGN" in called_paths[-1]
+    assert "timeGranularity=MONTHLY" in called_paths[-1]
+    assert "sortBy.field=" not in called_paths[-1]
+    assert "sortBy.order=" not in called_paths[-1]
+
+
 def test_get_insights_rejects_more_than_20_fields(settings: LinkedInAdsSettings) -> None:
     client = DummyClient(calls=[])
     fields = [
