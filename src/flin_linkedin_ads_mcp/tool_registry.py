@@ -206,6 +206,7 @@ def tool_specs() -> list[ToolSpec]:
                     },
                     "sort_order": {"type": "string", "enum": ["ASCENDING", "DESCENDING"]},
                 },
+                "required": ["date_from"],
                 "additionalProperties": False,
             },
         ),

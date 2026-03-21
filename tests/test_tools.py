@@ -88,7 +88,7 @@ def test_get_insights_passes_entity_filters(settings: LinkedInAdsSettings) -> No
     result = get_insights(
         client=client,
         settings=settings,
-        arguments={"pivot": "campaign", "entity_ids": ["123", "urn:li:sponsoredCampaign:456"]},
+        arguments={"pivot": "campaign", "entity_ids": ["123", "urn:li:sponsoredCampaign:456"], "date_from": "2025-01-01"},
     )
 
     assert result["ok"] is True
@@ -151,6 +151,17 @@ def test_get_insights_rejects_unknown_fields(settings: LinkedInAdsSettings) -> N
         )
 
 
+def test_get_insights_requires_date_from(settings: LinkedInAdsSettings) -> None:
+    client = DummyClient(calls=[])
+
+    with pytest.raises(ValueError, match="date_from is required"):
+        get_insights(
+            client=client,
+            settings=settings,
+            arguments={"pivot": "campaign"},
+        )
+
+
 def test_get_insights_accepts_landing_page_clicks_field(settings: LinkedInAdsSettings) -> None:
     client = DummyClient(calls=[])
 
@@ -159,6 +170,7 @@ def test_get_insights_accepts_landing_page_clicks_field(settings: LinkedInAdsSet
         settings=settings,
         arguments={
             "pivot": "campaign",
+            "date_from": "2025-01-01",
             "fields": ["impressions", "landingPageClicks", "costInLocalCurrency"],
         },
     )
@@ -174,7 +186,7 @@ def test_get_insights_accepts_extended_reporting_fields(settings: LinkedInAdsSet
     result = get_insights(
         client=client,
         settings=settings,
-        arguments={"pivot": "campaign", "fields": ["totalEngagements", "oneClickLeads", "costInUsd"]},
+        arguments={"pivot": "campaign", "date_from": "2025-01-01", "fields": ["totalEngagements", "oneClickLeads", "costInUsd"]},
     )
 
     assert result["ok"] is True
@@ -188,7 +200,7 @@ def test_get_insights_accepts_yearly_time_granularity(settings: LinkedInAdsSetti
     result = get_insights(
         client=client,
         settings=settings,
-        arguments={"pivot": "campaign", "time_granularity": "YEARLY", "fields": ["impressions", "clicks"]},
+        arguments={"pivot": "campaign", "date_from": "2025-01-01", "time_granularity": "YEARLY", "fields": ["impressions", "clicks"]},
     )
 
     assert result["ok"] is True
@@ -202,7 +214,7 @@ def test_get_insights_accepts_member_demographic_pivot(settings: LinkedInAdsSett
     result = get_insights(
         client=client,
         settings=settings,
-        arguments={"pivot": "member_company_size", "fields": ["impressions", "costInLocalCurrency"]},
+        arguments={"pivot": "member_company_size", "date_from": "2025-01-01", "fields": ["impressions", "costInLocalCurrency"]},
     )
 
     assert result["ok"] is True
@@ -216,7 +228,7 @@ def test_get_insights_accepts_action_clicks_metric(settings: LinkedInAdsSettings
     result = get_insights(
         client=client,
         settings=settings,
-        arguments={"pivot": "campaign", "fields": ["impressions", "actionClicks"]},
+        arguments={"pivot": "campaign", "date_from": "2025-01-01", "fields": ["impressions", "actionClicks"]},
     )
 
     assert result["ok"] is True
@@ -232,6 +244,7 @@ def test_get_insights_accepts_video_and_event_metrics(settings: LinkedInAdsSetti
         settings=settings,
         arguments={
             "pivot": "campaign",
+            "date_from": "2025-01-01",
             "fields": ["videoWatchTime", "averageVideoWatchTime", "eventViews", "eventWatchTime"],
         },
     )

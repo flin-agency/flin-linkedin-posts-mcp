@@ -86,6 +86,7 @@ Hinweis zu `get_insights`:
 
 - Der MCP nutzt den LinkedIn `analytics` Finder mit Single-Pivot.
 - Implementierung ist auf die Dokumentation `view=li-lms-2026-03` ausgerichtet.
+- `date_from` ist Pflicht (LinkedIn `adAnalytics` erwartet `dateRange`).
 - Unterstützte `fields` folgen der Metrics-Tabelle aus der offiziellen Reporting-Schema-Doku (max. 20 Felder pro Request).
 - Der Server nutzt intern `pivot.value` / `timeGranularity.value` und hat zusätzlich einen Fallback auf Legacy-Parameternamen für bessere API-Kompatibilität.
 - Neuere Video/Event-Felder sind enthalten, z. B. `videoWatchTime`, `averageVideoWatchTime`, `eventViews`, `eventWatchTime`, `averageEventWatchTime`.
@@ -115,7 +116,7 @@ Wichtigste Parameter:
 - `pivot`: z. B. `account`, `campaign_group`, `campaign`, `creative`, `member_company_size`, `member_industry`, `member_seniority`, `member_job_title`, `member_job_function`, `member_country_v2`, `member_region_v2`, `member_company`, `member_county`, `share`, `company`, `conversion`
 - `time_granularity`: `DAILY`, `MONTHLY`, `ALL`, `YEARLY`
 - `fields`: Liste aus der offiziellen Metrics-Tabelle, maximal 20 Einträge, case-sensitive
-- `date_from`: `YYYY-MM-DD`
+- `date_from`: `YYYY-MM-DD` (Pflicht)
 - `date_to`: optional, `YYYY-MM-DD`
 
 Facets/Filter:
@@ -171,7 +172,8 @@ Bei `ILLEGAL_ARGUMENT` oder `RESOURCE_NOT_FOUND` bitte prüfen:
 3. Mindestens ein gültiger Facet-Filter (`ad_account_id`/`account_ids` oder andere Facets).
 4. IDs im korrekten Format (Account/Campaign/Campaign Group/Creative numerisch oder URN; `share_ids` und `company_ids` als URN).
 5. Datum im Format `YYYY-MM-DD`.
-6. `pivot` ist einer der dokumentierten Werte (siehe oben).
+6. `date_from` ist gesetzt (ohne `dateRange` antwortet LinkedIn oft mit `ILLEGAL_ARGUMENT`).
+7. `pivot` ist einer der dokumentierten Werte (siehe oben).
 
 Schneller API-Gegencheck (ohne MCP) für das Token:
 

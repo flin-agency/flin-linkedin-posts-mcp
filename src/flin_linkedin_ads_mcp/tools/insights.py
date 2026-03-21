@@ -418,12 +418,12 @@ def _build_selector(
     return to_restli_list(normalized)
 
 
-def _resolve_date_range(arguments: dict[str, Any]) -> str | None:
+def _resolve_date_range(arguments: dict[str, Any]) -> str:
     date_from = arguments.get("date_from")
     date_to = arguments.get("date_to")
 
     if date_from is None and date_to is None:
-        return None
+        raise ValueError("date_from is required for get_insights (adAnalytics requires dateRange)")
     if date_from is None:
         raise ValueError("date_from must be provided when date_to is set")
 
