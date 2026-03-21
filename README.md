@@ -96,14 +96,31 @@ Voraussetzung:
 - In der App unter `Auth`:
   - `Client ID` und `Client Secret` notieren
   - Redirect URL hinzufügen, z. B. `http://localhost:9876/callback`
-- In der App sicherstellen, dass die Marketing/Ads Berechtigungen aktiviert sind (mind. `r_ads`)
+- In der App sicherstellen, dass die Marketing/Ads Berechtigungen aktiviert sind (`r_ads` + `r_ads_reporting`)
 
 ### 2) Authorization Code holen
 
-Im Browser öffnen (Werte ersetzen, `redirect_uri` URL-encoden):
+Im Browser öffnen (Werte ersetzen, `redirect_uri` URL-encoden).
+
+Für diesen MCP müssen im Scope mindestens enthalten sein:
+
+- `r_ads` (Accounts/Campaigns/Creatives)
+- `r_ads_reporting` (`get_insights`)
+
+Optional (nur wenn deine App dafür freigeschaltet ist):
+
+- `offline_access` (für Refresh-Token-Flow)
+
+Empfohlene URL für den MCP (ohne Refresh-Token):
 
 ```text
-https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=DEIN_CLIENT_ID&redirect_uri=http%3A%2F%2Flocalhost%3A9876%2Fcallback&scope=r_ads&state=dein_csrf_state
+https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=DEIN_CLIENT_ID&redirect_uri=http%3A%2F%2Flocalhost%3A9876%2Fcallback&scope=r_ads%20r_ads_reporting&state=dein_csrf_state
+```
+
+Variante mit optionalem `offline_access`:
+
+```text
+https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=DEIN_CLIENT_ID&redirect_uri=http%3A%2F%2Flocalhost%3A9876%2Fcallback&scope=r_ads%20r_ads_reporting%20offline_access&state=dein_csrf_state
 ```
 
 Nach Login/Consent leitet LinkedIn auf deine Redirect-URL zurück:
