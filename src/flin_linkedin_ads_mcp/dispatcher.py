@@ -5,6 +5,7 @@ from typing import Any, Callable
 from .config import LinkedInAdsSettings
 from .guards import assert_read_only_tool
 from .linkedin_client import LinkedInClient
+from .tools.account_intelligence import list_account_intelligence
 from .tools.accounts import get_ad_account, list_ad_accounts
 from .tools.campaign_groups import get_campaign_group, list_campaign_groups
 from .tools.campaigns import get_campaign, list_campaigns
@@ -55,6 +56,11 @@ TOOL_HANDLERS: dict[str, ToolHandler] = {
         arguments=arguments,
     ),
     "get_insights": lambda client, settings, arguments: get_insights(
+        client=client,
+        settings=settings,
+        arguments=arguments,
+    ),
+    "list_account_intelligence": lambda client, settings, arguments: list_account_intelligence(
         client=client,
         settings=settings,
         arguments=arguments,

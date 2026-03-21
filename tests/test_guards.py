@@ -8,6 +8,7 @@ from flin_linkedin_ads_mcp.guards import assert_read_only_tool
 def test_read_only_guard_accepts_list_tools() -> None:
     assert_read_only_tool("list_campaigns")
     assert_read_only_tool("get_insights")
+    assert_read_only_tool("list_account_intelligence")
 
 
 def test_read_only_guard_rejects_write_like_tool() -> None:

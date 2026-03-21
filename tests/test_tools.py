@@ -6,6 +6,7 @@ import pytest
 
 from flin_linkedin_ads_mcp.config import LinkedInAdsSettings
 from flin_linkedin_ads_mcp.errors import AccountSelectionRequired
+from flin_linkedin_ads_mcp.tools.account_intelligence import list_account_intelligence
 from flin_linkedin_ads_mcp.tools.campaigns import get_campaign, list_campaigns
 from flin_linkedin_ads_mcp.tools.creatives import get_creative
 from flin_linkedin_ads_mcp.tools.insights import get_insights
@@ -31,6 +32,18 @@ class DummyClient:
             }
         if path.endswith("/creatives"):
             return {"elements": [{"id": "urn:li:sponsoredCreative:999", "name": "Creative"}]}
+        if path.startswith("accountIntelligence?"):
+            return {
+                "elements": [
+                    {
+                        "companyName": "Microsoft",
+                        "paidImpressions": 133,
+                        "paidClicks": 20,
+                        "paidQualifiedLeads": 5,
+                        "conversions": 12,
+                    }
+                ]
+            }
         return {"elements": []}
 
 
@@ -210,6 +223,23 @@ def test_get_insights_accepts_action_clicks_metric(settings: LinkedInAdsSettings
     assert "fields=impressions,actionClicks" in path
 
 
+def test_get_insights_accepts_video_and_event_metrics(settings: LinkedInAdsSettings) -> None:
+    client = DummyClient(calls=[])
+
+    result = get_insights(
+        client=client,
+        settings=settings,
+        arguments={
+            "pivot": "campaign",
+            "fields": ["videoWatchTime", "averageVideoWatchTime", "eventViews", "eventWatchTime"],
+        },
+    )
+
+    assert result["ok"] is True
+    path, _ = client.calls[1]
+    assert "fields=videoWatchTime,averageVideoWatchTime,eventViews,eventWatchTime" in path
+
+
 def test_get_insights_rejects_more_than_20_fields(settings: LinkedInAdsSettings) -> None:
     client = DummyClient(calls=[])
     fields = [
@@ -242,6 +272,38 @@ def test_get_insights_rejects_more_than_20_fields(settings: LinkedInAdsSettings)
             settings=settings,
             arguments={"pivot": "campaign", "fields": fields},
         )
+
+
+def test_list_account_intelligence_builds_filter_criteria_query(settings: LinkedInAdsSettings) -> None:
+    client = DummyClient(calls=[])
+
+    result = list_account_intelligence(
+        client=client,
+        settings=settings,
+        arguments={
+            "ad_account_id": "508834004",
+            "lookback_window": "LAST_30_DAYS",
+            "ad_segment_ids": ["123", "urn:li:adSegment:456"],
+            "campaign_id": "469031486",
+            "skip_company_decoration": True,
+            "page_size": 500,
+            "page_start": 0,
+        },
+    )
+
+    assert result["ok"] is True
+    path, params = client.calls[0]
+    assert path.startswith("accountIntelligence?")
+    assert "q=account" in path
+    assert "account=urn%3Ali%3AsponsoredAccount%3A508834004" in path
+    assert "start=0" in path
+    assert "count=500" in path
+    assert "skipCompanyDecoration=true" in path
+    assert (
+        "filterCriteria=(lookbackWindow%3ALAST_30_DAYS,adSegments%3AList(urn%3Ali%3AadSegment%3A123,urn%3Ali%3AadSegment%3A456),campaign%3Aurn%3Ali%3AsponsoredCampaign%3A469031486)"
+        in path
+    )
+    assert params == {}
 
 
 def test_get_creative_rejects_invalid_id(settings: LinkedInAdsSettings) -> None:

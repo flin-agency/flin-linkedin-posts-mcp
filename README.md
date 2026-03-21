@@ -11,6 +11,7 @@ Er ist dafür gebaut, direkt in Claude über MCP eingebunden und getestet zu wer
 - Campaigns lesen
 - Creatives lesen
 - Insights/Analytics lesen
+- Company Intelligence lesen (`/accountIntelligence`, private API Access nötig)
 - Keine Schreiboperationen in `v0.1.x`
 
 ## Scope `v0.1.x` (strict read-only)
@@ -43,7 +44,7 @@ In Claude:
       ],
       "env": {
         "LINKEDIN_ACCESS_TOKEN": "AQX...",
-        "LINKEDIN_API_VERSION": "202602",
+        "LINKEDIN_API_VERSION": "202603",
         "LINKEDIN_RESTLI_PROTOCOL_VERSION": "2.0.0"
       }
     }
@@ -63,7 +64,7 @@ Danach Claude neu starten.
       "args": ["--refresh", "flin-linkedin-ads-mcp"],
       "env": {
         "LINKEDIN_ACCESS_TOKEN": "AQX...",
-        "LINKEDIN_API_VERSION": "202602",
+        "LINKEDIN_API_VERSION": "202603",
         "LINKEDIN_RESTLI_PROTOCOL_VERSION": "2.0.0"
       }
     }
@@ -87,6 +88,7 @@ Hinweis zu `get_insights`:
 - Implementierung ist auf die Dokumentation `view=li-lms-2026-03` ausgerichtet.
 - Unterstützte `fields` folgen der Metrics-Tabelle aus der offiziellen Reporting-Schema-Doku (max. 20 Felder pro Request).
 - Der Server nutzt intern `pivot.value` / `timeGranularity.value` und hat zusätzlich einen Fallback auf Legacy-Parameternamen für bessere API-Kompatibilität.
+- Neuere Video/Event-Felder sind enthalten, z. B. `videoWatchTime`, `averageVideoWatchTime`, `eventViews`, `eventWatchTime`, `averageEventWatchTime`.
 
 Beispiel für einen stabilen Test-Call:
 
@@ -127,6 +129,39 @@ Kompatibilität:
 
 - `entity_ids` bleibt für Backward-Kompatibilität erhalten (z. B. bei `pivot=campaign`).
 
+## `list_account_intelligence` (202603)
+
+Neues Tool:
+
+- `list_account_intelligence`
+
+Dieser Endpunkt nutzt `GET /rest/accountIntelligence?q=account` und ist laut LinkedIn private API (zusätzliche Freischaltung erforderlich).
+
+Wichtige Parameter:
+
+- `ad_account_id` (oder Auto-Resolve bei genau einem Account)
+- `lookback_window`: `LAST_7_DAYS`, `LAST_30_DAYS`, `LAST_60_DAYS`, `LAST_90_DAYS`
+- optional: `ad_segment_ids`, `campaign_id`
+- optional: `skip_company_decoration`
+- optional: `page_start`, `page_size` (max. 1000)
+
+Wichtige Response-Felder:
+
+- `companyName`, `engagementLevel`
+- `paidImpressions`, `paidClicks`, `paidEngagements`, `paidLeads`
+- `paidQualifiedLeads`, `conversions` (ab API-Version `202603`)
+- `organicImpressions`, `organicEngagements`
+
+Beispiel:
+
+```json
+{
+  "ad_account_id": "508834004",
+  "lookback_window": "LAST_30_DAYS",
+  "page_size": 100
+}
+```
+
 ## Troubleshooting `get_insights`
 
 Bei `ILLEGAL_ARGUMENT` oder `RESOURCE_NOT_FOUND` bitte prüfen:
@@ -143,7 +178,7 @@ Schneller API-Gegencheck (ohne MCP) für das Token:
 ```bash
 curl -i 'https://api.linkedin.com/rest/adAccounts?q=search&pageSize=1' \
   -H 'Authorization: Bearer DEIN_ACCESS_TOKEN' \
-  -H 'Linkedin-Version: 202602' \
+  -H 'Linkedin-Version: 202603' \
   -H 'X-Restli-Protocol-Version: 2.0.0'
 ```
 
@@ -237,7 +272,7 @@ Token gegen Ads-Account-Endpunkt testen:
 ```bash
 curl -i 'https://api.linkedin.com/rest/adAccounts?q=search&pageSize=1' \
   -H 'Authorization: Bearer DEIN_ACCESS_TOKEN' \
-  -H 'Linkedin-Version: 202602' \
+  -H 'Linkedin-Version: 202603' \
   -H 'X-Restli-Protocol-Version: 2.0.0'
 ```
 
@@ -255,7 +290,7 @@ Pflicht:
 
 Optional:
 
-- `LINKEDIN_API_VERSION` (Default: `202602`)
+- `LINKEDIN_API_VERSION` (Default: `202603`)
 - `LINKEDIN_RESTLI_PROTOCOL_VERSION` (Default: `2.0.0`)
 - `LINKEDIN_TIMEOUT_SECONDS` (Default: `30`)
 - `LINKEDIN_MAX_RETRIES` (Default: `3`)
@@ -330,5 +365,7 @@ git push origin main --tags
   - https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting?view=li-lms-2026-03
 - Reporting Schema (Metrics + Query Parameters):
   - https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting-schema?view=li-lms-2026-03
+- Company Intelligence API:
+  - https://learn.microsoft.com/en-us/linkedin/marketing/account-intel/account-intel-api?view=li-lms-2026-03
 - Programmatic Refresh Tokens:
   - https://learn.microsoft.com/en-us/linkedin/shared/authentication/programmatic-refresh-tokens

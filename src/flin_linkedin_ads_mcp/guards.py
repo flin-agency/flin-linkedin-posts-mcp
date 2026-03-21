@@ -11,6 +11,7 @@ READ_ONLY_TOOL_NAMES = {
     "list_creatives",
     "get_creative",
     "get_insights",
+    "list_account_intelligence",
 }
 
 

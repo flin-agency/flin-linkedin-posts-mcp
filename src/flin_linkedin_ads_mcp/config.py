@@ -22,7 +22,7 @@ def load_config(env: Mapping[str, str] | None = None) -> LinkedInAdsSettings:
 
     return LinkedInAdsSettings(
         access_token=access_token,
-        api_version=source.get("LINKEDIN_API_VERSION", "202602"),
+        api_version=source.get("LINKEDIN_API_VERSION", "202603"),
         restli_protocol_version=source.get("LINKEDIN_RESTLI_PROTOCOL_VERSION", "2.0.0"),
         timeout_seconds=float(source.get("LINKEDIN_TIMEOUT_SECONDS", "30")),
         max_retries=int(source.get("LINKEDIN_MAX_RETRIES", "3")),

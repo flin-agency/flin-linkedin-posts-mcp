@@ -8,6 +8,7 @@ ACCOUNT_ID_PATTERN = "^(urn:li:sponsoredAccount:)?[0-9]+$"
 CAMPAIGN_GROUP_PATTERN = "^(urn:li:sponsoredCampaignGroup:)?[0-9]+$"
 CAMPAIGN_PATTERN = "^(urn:li:sponsoredCampaign:)?[0-9]+$"
 CREATIVE_PATTERN = "^(urn:li:sponsoredCreative:)?[0-9]+$"
+AD_SEGMENT_PATTERN = "^(urn:li:adSegment:)?[0-9]+$"
 SHARE_URN_PATTERN = "^urn:li:share:[0-9]+$"
 ORGANIZATION_URN_PATTERN = "^urn:li:organization:[0-9]+$"
 FIELD_PATTERN = "^[A-Za-z][A-Za-z0-9_.]*$"
@@ -204,6 +205,34 @@ def tool_specs() -> list[ToolSpec]:
                         ],
                     },
                     "sort_order": {"type": "string", "enum": ["ASCENDING", "DESCENDING"]},
+                },
+                "additionalProperties": False,
+            },
+        ),
+        ToolSpec(
+            name="list_account_intelligence",
+            description="List company-level account intelligence rows (private LinkedIn API access required)",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "ad_account_id": {"type": "string", "pattern": ACCOUNT_ID_PATTERN},
+                    "lookback_window": {
+                        "type": "string",
+                        "enum": ["LAST_7_DAYS", "LAST_30_DAYS", "LAST_60_DAYS", "LAST_90_DAYS"],
+                        "default": "LAST_90_DAYS",
+                    },
+                    "ad_segment_ids": {
+                        "type": "array",
+                        "items": {"type": "string", "pattern": AD_SEGMENT_PATTERN},
+                    },
+                    "campaign_id": {"type": "string", "pattern": CAMPAIGN_PATTERN},
+                    "skip_company_decoration": {"type": "boolean"},
+                    "page_start": {"type": "integer", "minimum": 0},
+                    "page_size": {"type": "integer", "minimum": 1, "maximum": 1000},
+                    "fields": {
+                        "type": "array",
+                        "items": {"type": "string", "pattern": FIELD_PATTERN},
+                    },
                 },
                 "additionalProperties": False,
             },

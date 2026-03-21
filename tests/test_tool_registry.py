@@ -16,6 +16,7 @@ def test_tool_registry_exposes_expected_read_only_tools() -> None:
         "list_creatives",
         "get_creative",
         "get_insights",
+        "list_account_intelligence",
     ]
 
 
