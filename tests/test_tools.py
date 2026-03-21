@@ -97,7 +97,7 @@ def test_get_insights_passes_entity_filters(settings: LinkedInAdsSettings) -> No
     assert "q=analytics" in path
     assert "pivot.value=CAMPAIGN" in path
     assert "timeGranularity.value=DAILY" in path
-    assert "campaigns=List(urn:li:sponsoredCampaign:123,urn:li:sponsoredCampaign:456)" in path
+    assert "campaigns=List(urn%3Ali%3AsponsoredCampaign%3A123,urn%3Ali%3AsponsoredCampaign%3A456)" in path
     assert "fields=account_id,campaign_id,adset_id,ad_id,impressions,clicks,spend,reach,frequency,cpc,ctr" not in path
     assert "%2C" not in path
     assert params == {}
@@ -272,7 +272,7 @@ def test_get_insights_omits_default_account_facet_when_campaigns_are_explicit(se
 
     assert result["ok"] is True
     path, _ = client.calls[0]
-    assert "campaigns=List(urn:li:sponsoredCampaign:456070296,urn:li:sponsoredCampaign:469031486)" in path
+    assert "campaigns=List(urn%3Ali%3AsponsoredCampaign%3A456070296,urn%3Ali%3AsponsoredCampaign%3A469031486)" in path
     assert "accounts=List(" not in path
 
 

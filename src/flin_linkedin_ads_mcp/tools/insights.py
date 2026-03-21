@@ -585,7 +585,4 @@ def _query_value(value: Any) -> str:
 def _safe_chars_for_query_value(key: str, value: Any) -> str:
     if key == "dateRange":
         return ",():"
-    text = _query_value(value)
-    if text.startswith("List("):
-        return ",():"
     return ",()"
