@@ -97,7 +97,7 @@ def test_get_insights_passes_entity_filters(settings: LinkedInAdsSettings) -> No
     assert "q=analytics" in path
     assert "pivot.value=CAMPAIGN" in path
     assert "timeGranularity.value=DAILY" in path
-    assert "campaigns=List(urn%3Ali%3AsponsoredCampaign%3A123,urn%3Ali%3AsponsoredCampaign%3A456)" in path
+    assert "campaigns=List(urn:li:sponsoredCampaign:123,urn:li:sponsoredCampaign:456)" in path
     assert "fields=account_id,campaign_id,adset_id,ad_id,impressions,clicks,spend,reach,frequency,cpc,ctr" not in path
     assert "%2C" not in path
     assert params == {}
@@ -259,7 +259,7 @@ def test_get_insights_omits_default_account_facet_when_campaigns_are_explicit(se
 
     assert result["ok"] is True
     path, _ = client.calls[0]
-    assert "campaigns=List(urn%3Ali%3AsponsoredCampaign%3A456070296,urn%3Ali%3AsponsoredCampaign%3A469031486)" in path
+    assert "campaigns=List(urn:li:sponsoredCampaign:456070296,urn:li:sponsoredCampaign:469031486)" in path
     assert "accounts=List(" not in path
 
 
@@ -301,7 +301,7 @@ def test_get_insights_retries_query_shapes_for_illegal_argument(settings: Linked
     assert "pivot.value=CAMPAIGN" in called_paths[0]
     assert "pivot=CAMPAIGN" in called_paths[1]
     assert "accounts=List(" in called_paths[2]
-    assert "dateRange=(start%3A(day%3A1,month%3A1,year%3A2025),end%3A(day%3A31,month%3A12,year%3A2025))" in called_paths[-1]
+    assert "dateRange=(start:(day:1,month:1,year:2025),end:(day:31,month:12,year:2025))" in called_paths[-1]
 
 
 def test_get_insights_rejects_more_than_20_fields(settings: LinkedInAdsSettings) -> None:

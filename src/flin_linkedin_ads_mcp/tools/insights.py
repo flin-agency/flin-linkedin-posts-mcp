@@ -223,7 +223,10 @@ DATE_RANGE_YMD_PATTERN = re.compile(
 
 def _raw_query(params: dict[str, Any]) -> str:
     filtered = compact_params(params)
-    segments = [f"{quote(str(key), safe='._')}={quote(_query_value(value), safe=',()')}" for key, value in filtered.items()]
+    segments = [
+        f"{quote(str(key), safe='._')}={quote(_query_value(value), safe=_safe_chars_for_query_value(key, value))}"
+        for key, value in filtered.items()
+    ]
     return "&".join(segments)
 
 
@@ -577,3 +580,12 @@ def _query_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value)
+
+
+def _safe_chars_for_query_value(key: str, value: Any) -> str:
+    if key == "dateRange":
+        return ",():"
+    text = _query_value(value)
+    if text.startswith("List("):
+        return ",():"
+    return ",()"
