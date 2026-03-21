@@ -80,7 +80,8 @@ def test_get_insights_passes_entity_filters(settings: LinkedInAdsSettings) -> No
     assert result["ok"] is True
     path, params = client.calls[1]
     assert path == "adAnalytics"
-    assert params["pivots"] == "List(CAMPAIGN)"
+    assert params["q"] == "analytics"
+    assert params["pivot"] == "CAMPAIGN"
     assert params["campaigns"] == "List(urn:li:sponsoredCampaign:123,urn:li:sponsoredCampaign:456)"
 
 

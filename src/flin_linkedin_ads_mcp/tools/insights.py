@@ -121,8 +121,8 @@ def get_insights(
         )
 
     params: dict[str, Any] = {
-        "q": "statistics",
-        "pivots": to_restli_list([api_pivot]),
+        "q": "analytics",
+        "pivot": api_pivot,
         "accounts": to_restli_list([to_account_urn(account_id)]),
         "fields": fields_csv,
         "timeGranularity": time_granularity,
