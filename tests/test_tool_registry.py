@@ -1,0 +1,25 @@
+from __future__ import annotations
+
+from flin_linkedin_ads_mcp.tool_registry import tool_specs
+
+
+def test_tool_registry_exposes_expected_read_only_tools() -> None:
+    names = [spec.name for spec in tool_specs()]
+
+    assert names == [
+        "list_ad_accounts",
+        "get_ad_account",
+        "list_campaign_groups",
+        "get_campaign_group",
+        "list_campaigns",
+        "get_campaign",
+        "list_creatives",
+        "get_creative",
+        "get_insights",
+    ]
+
+
+def test_get_insights_exposes_pivot_field() -> None:
+    spec = next(spec for spec in tool_specs() if spec.name == "get_insights")
+
+    assert "pivot" in spec.input_schema["properties"]
