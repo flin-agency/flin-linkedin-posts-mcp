@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Any, Callable
 from urllib.parse import quote
 
@@ -214,6 +215,11 @@ ALLOWED_SORT_FIELDS = {
 
 ALLOWED_SORT_ORDERS = {"ASCENDING", "DESCENDING"}
 
+DATE_RANGE_YMD_PATTERN = re.compile(
+    r"^\(start:\(year:(?P<sy>\d+),month:(?P<sm>\d+),day:(?P<sd>\d+)\)"
+    r"(,end:\(year:(?P<ey>\d+),month:(?P<em>\d+),day:(?P<ed>\d+)\))?\)$"
+)
+
 
 def _raw_query(params: dict[str, Any]) -> str:
     filtered = compact_params(params)
@@ -254,12 +260,13 @@ def get_insights(
     _drop_default_account_selector_if_other_facets_are_present(params=params, arguments=arguments)
 
     payload: dict[str, Any] | None = None
-    for index, variant in enumerate(_analytics_query_variants(params)):
+    query_variants = _analytics_query_variants(params=params, account_selector=account_selector)
+    for index, variant in enumerate(query_variants):
         try:
             payload = client.get_json(f"adAnalytics?{_raw_query(variant)}", params=None)
             break
         except LinkedInValidationError as exc:
-            if index < 1 and _is_query_shape_error(exc):
+            if index < len(query_variants) - 1 and _is_query_shape_error(exc):
                 continue
             raise
 
@@ -439,7 +446,43 @@ def _resolve_date_range(arguments: dict[str, Any]) -> str | None:
     )
 
 
-def _analytics_query_variants(params: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def _analytics_query_variants(*, params: dict[str, Any], account_selector: str) -> list[dict[str, Any]]:
+    variants: list[dict[str, Any]] = []
+
+    def _append(candidate: dict[str, Any]) -> None:
+        if any(existing == candidate for existing in variants):
+            return
+        variants.append(candidate)
+
+    base = dict(params)
+    _append(base)
+    _append(_to_legacy_param_names(base))
+
+    has_non_account_facet = any(key in base for key in ("campaigns", "campaignGroups", "creatives", "shares", "companies"))
+    allow_accounts_fallback = "accounts" not in base and has_non_account_facet
+    if allow_accounts_fallback:
+        with_accounts = dict(base)
+        with_accounts["accounts"] = account_selector
+        _append(with_accounts)
+        _append(_to_legacy_param_names(with_accounts))
+
+    alternate_date_range = _to_day_month_year_date_range(base.get("dateRange"))
+    if alternate_date_range is not None:
+        base_alt_date = dict(base)
+        base_alt_date["dateRange"] = alternate_date_range
+        _append(base_alt_date)
+        _append(_to_legacy_param_names(base_alt_date))
+
+        if allow_accounts_fallback:
+            base_alt_date_with_accounts = dict(base_alt_date)
+            base_alt_date_with_accounts["accounts"] = account_selector
+            _append(base_alt_date_with_accounts)
+            _append(_to_legacy_param_names(base_alt_date_with_accounts))
+
+    return variants
+
+
+def _to_legacy_param_names(params: dict[str, Any]) -> dict[str, Any]:
     legacy = dict(params)
     for key_with_value_suffix, legacy_key in (
         ("pivot.value", "pivot"),
@@ -449,7 +492,33 @@ def _analytics_query_variants(params: dict[str, Any]) -> tuple[dict[str, Any], d
     ):
         if key_with_value_suffix in legacy:
             legacy[legacy_key] = legacy.pop(key_with_value_suffix)
-    return params, legacy
+    return legacy
+
+
+def _to_day_month_year_date_range(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+
+    match = DATE_RANGE_YMD_PATTERN.fullmatch(value)
+    if not match:
+        return None
+
+    groups = match.groupdict()
+    start = "start:(day:{day},month:{month},year:{year})".format(
+        day=groups["sd"],
+        month=groups["sm"],
+        year=groups["sy"],
+    )
+
+    if groups["ey"] is None or groups["em"] is None or groups["ed"] is None:
+        return f"({start})"
+
+    end = "end:(day:{day},month:{month},year:{year})".format(
+        day=groups["ed"],
+        month=groups["em"],
+        year=groups["ey"],
+    )
+    return f"({start},{end})"
 
 
 def _normalize_pivot(value: Any) -> tuple[str, str]:

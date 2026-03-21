@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from flin_linkedin_ads_mcp.config import LinkedInAdsSettings
+from flin_linkedin_ads_mcp.errors import LinkedInValidationError
 from flin_linkedin_ads_mcp.errors import AccountSelectionRequired
 from flin_linkedin_ads_mcp.tools.account_intelligence import list_account_intelligence
 from flin_linkedin_ads_mcp.tools.campaigns import get_campaign, list_campaigns
@@ -260,6 +261,47 @@ def test_get_insights_omits_default_account_facet_when_campaigns_are_explicit(se
     path, _ = client.calls[0]
     assert "campaigns=List(urn%3Ali%3AsponsoredCampaign%3A456070296,urn%3Ali%3AsponsoredCampaign%3A469031486)" in path
     assert "accounts=List(" not in path
+
+
+def test_get_insights_retries_query_shapes_for_illegal_argument(settings: LinkedInAdsSettings) -> None:
+    class QueryShapeFlakyClient(DummyClient):
+        def get_json(self, path: str, params: dict | None) -> dict:
+            self.calls.append((path, dict(params or {})))
+            if path == "adAccounts":
+                return {"elements": [{"id": 508834004, "name": "Account"}]}
+            if len(self.calls) < 8:
+                raise LinkedInValidationError(
+                    "Invalid query parameters passed to request",
+                    status_code=400,
+                    details={
+                        "status_code": 400,
+                        "error": {"code": "ILLEGAL_ARGUMENT", "message": "Invalid query parameters passed to request"},
+                    },
+                )
+            return {"elements": []}
+
+    client = QueryShapeFlakyClient(calls=[])
+
+    result = get_insights(
+        client=client,
+        settings=settings,
+        arguments={
+            "ad_account_id": "508834004",
+            "pivot": "campaign",
+            "campaign_ids": ["456070296"],
+            "date_from": "2025-01-01",
+            "date_to": "2025-12-31",
+            "time_granularity": "DAILY",
+        },
+    )
+
+    assert result["ok"] is True
+    called_paths = [path for path, _ in client.calls]
+    assert called_paths[0].startswith("adAnalytics?")
+    assert "pivot.value=CAMPAIGN" in called_paths[0]
+    assert "pivot=CAMPAIGN" in called_paths[1]
+    assert "accounts=List(" in called_paths[2]
+    assert "dateRange=(start%3A(day%3A1,month%3A1,year%3A2025),end%3A(day%3A31,month%3A12,year%3A2025))" in called_paths[-1]
 
 
 def test_get_insights_rejects_more_than_20_fields(settings: LinkedInAdsSettings) -> None:
