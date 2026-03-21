@@ -66,7 +66,7 @@ class LinkedInClient:
         json_body: Mapping[str, Any] | None = None,
     ) -> _RequestResult:
         url = self._build_url(path)
-        request_params = dict(params or {})
+        request_params = dict(params) if params else None
         request_headers = {
             "Authorization": f"Bearer {self.access_token}",
             "Linkedin-Version": self.api_version,

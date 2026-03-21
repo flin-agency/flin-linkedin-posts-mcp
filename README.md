@@ -84,16 +84,8 @@ Wenn `list_campaigns` eine Auswahl zurückgibt, den Call mit einem vorgeschlagen
 Hinweis zu `get_insights`:
 
 - Der MCP nutzt den LinkedIn `analytics` Finder mit Single-Pivot.
-- Unterstützte `fields` sind aktuell:
-  - `costInLocalCurrency`
-  - `clicks`
-  - `dateRange`
-  - `externalWebsiteConversions`
-  - `impressions`
-  - `landingPageClicks`
-  - `likes`
-  - `pivotValues`
-  - `shares`
+- Unterstützte `fields` decken die gängigen LinkedIn Analytics-Metriken ab (z. B. `impressions`, `clicks`, `costInLocalCurrency`, `landingPageClicks`, `totalEngagements`, `oneClickLeads`).
+- Falls LinkedIn neue Felder hinzufügt, können diese API-seitig trotzdem noch abweichen.
 
 ## LinkedIn Access Token generieren (Schritt für Schritt)
 

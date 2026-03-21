@@ -153,15 +153,18 @@ def test_get_insights_accepts_landing_page_clicks_field(settings: LinkedInAdsSet
     assert "fields=impressions,landingPageClicks,costInLocalCurrency" in path
 
 
-def test_get_insights_rejects_unsupported_cost_in_usd_field(settings: LinkedInAdsSettings) -> None:
+def test_get_insights_accepts_extended_reporting_fields(settings: LinkedInAdsSettings) -> None:
     client = DummyClient(calls=[])
 
-    with pytest.raises(ValueError, match="Unsupported fields"):
-        get_insights(
-            client=client,
-            settings=settings,
-            arguments={"pivot": "campaign", "fields": ["impressions", "costInUsd"]},
-        )
+    result = get_insights(
+        client=client,
+        settings=settings,
+        arguments={"pivot": "campaign", "fields": ["totalEngagements", "oneClickLeads", "costInUsd"]},
+    )
+
+    assert result["ok"] is True
+    path, _ = client.calls[1]
+    assert "fields=totalEngagements,oneClickLeads,costInUsd" in path
 
 
 def test_get_creative_rejects_invalid_id(settings: LinkedInAdsSettings) -> None:

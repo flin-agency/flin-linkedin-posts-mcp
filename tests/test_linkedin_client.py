@@ -55,6 +55,32 @@ def test_get_json_uses_required_linkedin_headers() -> None:
 
 
 @respx.mock
+def test_get_json_preserves_query_from_path_when_params_are_empty_dict() -> None:
+    route = respx.get("https://api.linkedin.com/rest/adAnalytics").mock(
+        return_value=httpx.Response(200, json={"elements": []})
+    )
+
+    client = LinkedInClient(
+        access_token="token",
+        api_version="202602",
+        restli_protocol_version="2.0.0",
+        timeout_seconds=10,
+        max_retries=1,
+    )
+
+    client.get_json(
+        "adAnalytics?q=analytics&pivot=CAMPAIGN&fields=impressions,clicks,costInLocalCurrency",
+        params={},
+    )
+
+    assert len(route.calls) == 1
+    request = route.calls[0].request
+    assert request.url.params.get("q") == "analytics"
+    assert request.url.params.get("pivot") == "CAMPAIGN"
+    assert request.url.params.get("fields") == "impressions,clicks,costInLocalCurrency"
+
+
+@respx.mock
 def test_get_json_maps_permission_error() -> None:
     respx.get("https://api.linkedin.com/rest/adAccounts").mock(
         return_value=httpx.Response(403, json={"message": "Permission denied"})
