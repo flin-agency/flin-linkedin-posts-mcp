@@ -9,7 +9,6 @@ from .common import (
     build_insights_selector,
     compact_params,
     date_range_to_restli,
-    normalize_page_size,
     resolve_ad_account_id,
     resolve_fields,
     to_account_urn,
@@ -128,8 +127,6 @@ def get_insights(
         "fields": fields_csv,
         "timeGranularity": time_granularity,
         "dateRange": date_range,
-        "pageSize": normalize_page_size(arguments.get("page_size"), default=100),
-        "pageToken": arguments.get("page_token"),
     }
 
     entity_ids = arguments.get("entity_ids")

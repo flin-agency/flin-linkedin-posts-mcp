@@ -135,8 +135,6 @@ def tool_specs() -> list[ToolSpec]:
                     "time_granularity": {"type": "string", "default": "DAILY"},
                     "date_from": {"type": "string", "pattern": DATE_PATTERN},
                     "date_to": {"type": "string", "pattern": DATE_PATTERN},
-                    "page_size": {"type": "integer", "minimum": 1, "maximum": 1000},
-                    "page_token": {"type": "string"},
                 },
                 "additionalProperties": False,
             },
