@@ -251,6 +251,7 @@ def get_insights(
 
     _add_optional_filters(params=params, arguments=arguments)
     _apply_entity_ids_compat(params=params, pivot=normalized_pivot, entity_ids=arguments.get("entity_ids"))
+    _drop_default_account_selector_if_other_facets_are_present(params=params, arguments=arguments)
 
     payload: dict[str, Any] | None = None
     for index, variant in enumerate(_analytics_query_variants(params)):
@@ -283,6 +284,14 @@ def _apply_entity_ids_compat(*, params: dict[str, Any], pivot: str, entity_ids: 
     selector_key, selector_value = build_insights_selector(pivot, entity_ids)
     if selector_key not in params:
         params[selector_key] = selector_value
+
+
+def _drop_default_account_selector_if_other_facets_are_present(*, params: dict[str, Any], arguments: dict[str, Any]) -> None:
+    if arguments.get("account_ids") is not None:
+        return
+
+    if any(key in params for key in ("campaigns", "campaignGroups", "creatives", "shares", "companies")):
+        params.pop("accounts", None)
 
 
 def _add_optional_filters(*, params: dict[str, Any], arguments: dict[str, Any]) -> None:

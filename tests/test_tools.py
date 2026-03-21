@@ -240,6 +240,28 @@ def test_get_insights_accepts_video_and_event_metrics(settings: LinkedInAdsSetti
     assert "fields=videoWatchTime,averageVideoWatchTime,eventViews,eventWatchTime" in path
 
 
+def test_get_insights_omits_default_account_facet_when_campaigns_are_explicit(settings: LinkedInAdsSettings) -> None:
+    client = DummyClient(calls=[])
+
+    result = get_insights(
+        client=client,
+        settings=settings,
+        arguments={
+            "ad_account_id": "508834004",
+            "pivot": "campaign",
+            "campaign_ids": ["456070296", "469031486"],
+            "date_from": "2025-01-01",
+            "date_to": "2025-12-31",
+            "time_granularity": "ALL",
+        },
+    )
+
+    assert result["ok"] is True
+    path, _ = client.calls[0]
+    assert "campaigns=List(urn%3Ali%3AsponsoredCampaign%3A456070296,urn%3Ali%3AsponsoredCampaign%3A469031486)" in path
+    assert "accounts=List(" not in path
+
+
 def test_get_insights_rejects_more_than_20_fields(settings: LinkedInAdsSettings) -> None:
     client = DummyClient(calls=[])
     fields = [
