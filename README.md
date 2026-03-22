@@ -48,6 +48,50 @@ python -m pip install -e '.[dev]'
 }
 ```
 
+## Veröffentlichung auf PyPI (direkt über GitHub)
+
+1. PyPI Trusted Publishing für dieses Repo einrichten:
+   - PyPI Projekt: `flin-linkedin-posts-mcp`
+   - Publisher: GitHub Actions
+   - Repository: `flin-agency/flin-linkedin-posts-mcp`
+   - Workflow: `.github/workflows/release.yml`
+   - Environment: `pypi`
+2. Version in `pyproject.toml` erhöhen.
+3. Tag im Format `vX.Y.Z` erstellen und pushen:
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+4. Der Release-Workflow prüft automatisch:
+   - Tag-Version == `project.version` in `pyproject.toml`
+   - `ruff`, `mypy`, `pytest`
+   - Build + `twine check`
+5. Danach publiziert GitHub Actions direkt nach PyPI und erstellt ein GitHub Release.
+
+## Claude-Test mit veröffentlichtem Paket (`uvx`)
+
+Nach erfolgreichem PyPI-Release in Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "flin-linkedin-posts-mcp": {
+      "command": "uvx",
+      "args": ["--refresh", "flin-linkedin-posts-mcp"],
+      "env": {
+        "LINKEDIN_ACCESS_TOKEN": "AQX...",
+        "LINKEDIN_API_VERSION": "202603",
+        "LINKEDIN_RESTLI_PROTOCOL_VERSION": "2.0.0"
+      }
+    }
+  }
+}
+```
+
+Claude Desktop danach komplett neu starten.
+
 ## Entwicklung
 
 ```bash

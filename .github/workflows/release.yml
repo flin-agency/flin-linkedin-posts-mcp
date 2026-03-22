@@ -34,6 +34,22 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]" build twine
 
+      - name: Verify tag matches package version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PROJECT_VERSION="$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          pyproject = Path("pyproject.toml")
+          data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+          print(data["project"]["version"])
+          PY
+          )"
+          if [ "$TAG_VERSION" != "$PROJECT_VERSION" ]; then
+            echo "Tag version ($TAG_VERSION) does not match pyproject.toml version ($PROJECT_VERSION)."
+            exit 1
+          fi
+
       - name: Verify quality gates
         run: |
           ruff check .
