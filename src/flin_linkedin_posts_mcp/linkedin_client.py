@@ -9,7 +9,7 @@ import httpx
 
 from .errors import (
     LinkedInAPIError,
-    LinkedInAdsError,
+    LinkedInPostsError,
     LinkedInAuthError,
     LinkedInPermissionError,
     LinkedInRateLimitError,
@@ -58,6 +58,11 @@ class LinkedInClient:
         self.last_request_id = result.request_id
         return result.payload
 
+    def get_json_url(self, url: str, params: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        result = self.request_json("GET", url, params=params)
+        self.last_request_id = result.request_id
+        return result.payload
+
     def request_json(
         self,
         method: str,
@@ -101,6 +106,8 @@ class LinkedInClient:
 
     @staticmethod
     def _build_url(path: str) -> str:
+        if path.startswith(("https://", "http://")):
+            return path
         clean_path = path.lstrip("/")
         return f"https://api.linkedin.com/rest/{clean_path}"
 
@@ -120,7 +127,7 @@ class LinkedInClient:
     def _backoff_seconds(attempt: int) -> float:
         return min(2.0**attempt * 0.5, 8.0)
 
-    def _error_from_response(self, response: httpx.Response, *, request_id: str | None) -> LinkedInAdsError:
+    def _error_from_response(self, response: httpx.Response, *, request_id: str | None) -> LinkedInPostsError:
         payload = _safe_json(response)
         message = (
             str(payload.get("message"))
@@ -134,61 +141,30 @@ class LinkedInClient:
         }
 
         if response.status_code == 401:
-            return LinkedInAuthError(
-                message,
-                status_code=response.status_code,
-                request_id=request_id,
-                details=details,
-            )
-
+            return LinkedInAuthError(message, status_code=response.status_code, request_id=request_id, details=details)
         if response.status_code == 403:
-            return LinkedInPermissionError(
-                message,
-                status_code=response.status_code,
-                request_id=request_id,
-                details=details,
-            )
-
+            return LinkedInPermissionError(message, status_code=response.status_code, request_id=request_id, details=details)
         if response.status_code == 429:
-            return LinkedInRateLimitError(
-                message,
-                status_code=response.status_code,
-                request_id=request_id,
-                details=details,
-            )
-
+            return LinkedInRateLimitError(message, status_code=response.status_code, request_id=request_id, details=details)
         if response.status_code in {400, 404, 422}:
-            return LinkedInValidationError(
-                message,
-                status_code=response.status_code,
-                request_id=request_id,
-                details=details,
-            )
-
-        return LinkedInAPIError(
-            message,
-            status_code=response.status_code,
-            request_id=request_id,
-            details=details,
-        )
+            return LinkedInValidationError(message, status_code=response.status_code, request_id=request_id, details=details)
+        return LinkedInAPIError(message, status_code=response.status_code, request_id=request_id, details=details)
 
     @staticmethod
     def _restli_method_override(*, method: str, path: str, params: Mapping[str, Any] | None) -> str | None:
         if method.strip().upper() != "GET":
             return None
+        split_path = urlsplit(path)
+        if split_path.netloc == "api.linkedin.com" and split_path.path.startswith("/v2/"):
+            return None
 
         query_keys: set[str] = set()
-
-        split_path = urlsplit(path)
         for key, _ in parse_qsl(split_path.query, keep_blank_values=True):
             query_keys.add(key)
-
         if params:
             for key, value in params.items():
-                if value is None:
-                    continue
-                query_keys.add(str(key))
-
+                if value is not None:
+                    query_keys.add(str(key))
         if "q" in query_keys:
             return "FINDER"
         if "ids" in query_keys:

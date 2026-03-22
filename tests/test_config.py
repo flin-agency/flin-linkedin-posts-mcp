@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from flin_linkedin_ads_mcp.config import load_config
+from flin_linkedin_posts_mcp.config import load_config
 
 
 def test_load_config_requires_access_token(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 
-from flin_linkedin_ads_mcp import server
-from flin_linkedin_ads_mcp.config import LinkedInAdsSettings
+from flin_linkedin_posts_mcp import server
+from flin_linkedin_posts_mcp.config import LinkedInPostsSettings
 
 
 class _DummyTextContent:
@@ -51,7 +51,7 @@ def test_call_tool_unexpected_exception_does_not_leak_internal_error_details(mon
     monkeypatch.setattr(server, "mcp_types", _DummyMcpTypes)
     monkeypatch.setattr(server, "dispatch_tool", _boom)
 
-    settings = LinkedInAdsSettings(
+    settings = LinkedInPostsSettings(
         access_token="token",
         api_version="202602",
         restli_protocol_version="2.0.0",
@@ -61,7 +61,7 @@ def test_call_tool_unexpected_exception_does_not_leak_internal_error_details(mon
     client = type("ClientStub", (), {"last_request_id": "req-123"})()
 
     test_server = server.create_server(settings=settings, client=client)
-    response_chunks = asyncio.run(test_server.call_tool_handler("list_campaigns", {}))
+    response_chunks = asyncio.run(test_server.call_tool_handler("list_member_posts", {}))
     payload = json.loads(response_chunks[0].text)
 
     assert payload["ok"] is False

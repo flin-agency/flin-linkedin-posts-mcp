@@ -5,10 +5,10 @@ import json
 import logging
 from typing import Any
 
-from .config import LinkedInAdsSettings, load_config
+from .config import LinkedInPostsSettings, load_config
 from .dispatcher import dispatch_tool
-from .errors import AccountSelectionRequired, LinkedInAdsError
-from .response import error_response, selection_required_response
+from .errors import LinkedInPostsError
+from .response import error_response
 from .tool_registry import tool_specs
 
 logger = logging.getLogger(__name__)
@@ -25,11 +25,11 @@ except Exception:  # pragma: no cover - exercised only when dependency is unavai
     pass
 
 
-def create_server(settings: LinkedInAdsSettings | None = None, client: Any | None = None) -> Any:
+def create_server(settings: LinkedInPostsSettings | None = None, client: Any | None = None) -> Any:
     if Server is None or mcp_types is None:
         raise RuntimeError("mcp is required to create the MCP server")
 
-    server = Server("flin-linkedin-ads-mcp")
+    server = Server("flin-linkedin-posts-mcp")
     resolved_settings = settings or load_config()
     runtime_client = client or _client(resolved_settings)
 
@@ -49,15 +49,7 @@ def create_server(settings: LinkedInAdsSettings | None = None, client: Any | Non
         request_id = getattr(runtime_client, "last_request_id", None)
         try:
             result = dispatch_tool(name, arguments or {}, settings=resolved_settings, client=runtime_client)
-        except AccountSelectionRequired as exc:
-            result = selection_required_response(
-                question=str(exc),
-                parameter="ad_account_id",
-                choices=exc.choices,
-                api_version=resolved_settings.api_version,
-                request_id=request_id,
-            )
-        except LinkedInAdsError as exc:
+        except LinkedInPostsError as exc:
             result = error_response(
                 code=exc.error_code,
                 message=exc.message,
@@ -95,7 +87,7 @@ def create_server(settings: LinkedInAdsSettings | None = None, client: Any | Non
 
 def main() -> None:
     if stdio_server is None or Server is None:
-        raise RuntimeError("mcp is required to run flin-linkedin-ads-mcp")
+        raise RuntimeError("mcp is required to run flin-linkedin-posts-mcp")
     asyncio.run(_main())
 
 
@@ -107,7 +99,7 @@ async def _main() -> None:
             await server.run(read_stream, write_stream, server.create_initialization_options())
 
 
-def _client(settings: LinkedInAdsSettings):
+def _client(settings: LinkedInPostsSettings):
     from .linkedin_client import LinkedInClient
 
     return LinkedInClient(
