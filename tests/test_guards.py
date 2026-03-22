@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import pytest
 
-from flin_linkedin_ads_mcp.guards import assert_read_only_tool
+from flin_linkedin_posts_mcp.guards import assert_read_only_tool
 
 
-def test_read_only_guard_accepts_list_tools() -> None:
-    assert_read_only_tool("list_campaigns")
-    assert_read_only_tool("get_insights")
-    assert_read_only_tool("list_account_intelligence")
-    assert_read_only_tool("get_share_content")
+def test_read_only_guard_accepts_post_tools() -> None:
+    assert_read_only_tool("get_member_profile")
+    assert_read_only_tool("list_member_posts")
+    assert_read_only_tool("get_post")
+    assert_read_only_tool("analyze_member_posts")
 
 
-def test_read_only_guard_rejects_write_like_tool() -> None:
+def test_read_only_guard_rejects_removed_tools() -> None:
     with pytest.raises(PermissionError, match="read-only"):
-        assert_read_only_tool("update_campaign")
+        assert_read_only_tool("get_insights")

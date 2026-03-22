@@ -3,16 +3,16 @@ requires = ["hatchling>=1.24"]
 build-backend = "hatchling.build"
 
 [project]
-name = "flin-linkedin-ads-mcp"
+name = "flin-linkedin-posts-mcp"
 version = "0.1.0"
-description = "Strict read-only MCP server for LinkedIn Ads"
+description = "Read-only MCP server for LinkedIn member posts analysis"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
   { name = "flin.agency" }
 ]
-keywords = ["mcp", "linkedin-ads", "linkedin-marketing", "model-context-protocol"]
+keywords = ["mcp", "linkedin-posts", "linkedin", "model-context-protocol"]
 dependencies = [
   "httpx>=0.28.1",
   "mcp>=1.0.0",
@@ -27,15 +27,15 @@ dev = [
 ]
 
 [project.scripts]
-flin-linkedin-ads-mcp = "flin_linkedin_ads_mcp.server:main"
+flin-linkedin-posts-mcp = "flin_linkedin_posts_mcp.server:main"
 
 [project.urls]
-Homepage = "https://github.com/flin-agency/flin-linkedin-ads-mcp"
-Repository = "https://github.com/flin-agency/flin-linkedin-ads-mcp"
-Issues = "https://github.com/flin-agency/flin-linkedin-ads-mcp/issues"
+Homepage = "https://github.com/flin-agency/flin-linkedin-posts-mcp"
+Repository = "https://github.com/flin-agency/flin-linkedin-posts-mcp"
+Issues = "https://github.com/flin-agency/flin-linkedin-posts-mcp/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/flin_linkedin_ads_mcp"]
+packages = ["src/flin_linkedin_posts_mcp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

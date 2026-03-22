@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-class LinkedInAdsError(Exception):
+class LinkedInPostsError(Exception):
     error_code = "linkedin_api_error"
 
     def __init__(
@@ -19,27 +19,21 @@ class LinkedInAdsError(Exception):
         self.details = details or {}
 
 
-class LinkedInAuthError(LinkedInAdsError):
+class LinkedInAuthError(LinkedInPostsError):
     error_code = "auth_error"
 
 
-class LinkedInPermissionError(LinkedInAdsError):
+class LinkedInPermissionError(LinkedInPostsError):
     error_code = "permission_error"
 
 
-class LinkedInRateLimitError(LinkedInAdsError):
+class LinkedInRateLimitError(LinkedInPostsError):
     error_code = "rate_limit_error"
 
 
-class LinkedInValidationError(LinkedInAdsError):
+class LinkedInValidationError(LinkedInPostsError):
     error_code = "validation_error"
 
 
-class LinkedInAPIError(LinkedInAdsError):
+class LinkedInAPIError(LinkedInPostsError):
     error_code = "linkedin_api_error"
-
-
-class AccountSelectionRequired(Exception):
-    def __init__(self, *, choices: list[dict[str, str]], message: str | None = None) -> None:
-        self.choices = choices
-        super().__init__(message or "Multiple ad accounts found. Please choose ad_account_id.")
