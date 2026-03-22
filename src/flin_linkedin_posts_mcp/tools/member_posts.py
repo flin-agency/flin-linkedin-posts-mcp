@@ -70,7 +70,12 @@ def analyze_member_posts(*, client: LinkedInClient, settings: LinkedInPostsSetti
     })
     posts = listing["data"]
     if published_after_date is not None:
-        posts = [post for post in posts if _post_date(post) is None or _post_date(post) >= published_after_date]
+        filtered_posts: list[Mapping[str, Any]] = []
+        for post in posts:
+            post_date = _post_date(post)
+            if post_date is None or post_date >= published_after_date:
+                filtered_posts.append(post)
+        posts = filtered_posts
 
     texts = [post.get("text") or "" for post in posts]
     hashtags = Counter(tag.lower() for post in posts for tag in post.get("hashtags", []))
