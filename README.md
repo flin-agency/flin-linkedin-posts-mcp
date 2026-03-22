@@ -100,7 +100,7 @@ python -m pip install -e '.[dev]'
 }
 ```
 
-Für reproduzierbare Setups lieber auf eine feste Version pinnen, z. B. `flin-linkedin-posts-mcp@0.1.1`.
+Für reproduzierbare Setups lieber auf eine feste Version pinnen, z. B. `flin-linkedin-posts-mcp@0.1.2`.
 
 ## Veröffentlichung auf PyPI (direkt über GitHub)
 
@@ -114,8 +114,8 @@ Für reproduzierbare Setups lieber auf eine feste Version pinnen, z. B. `flin-li
 3. Tag im Format `vX.Y.Z` erstellen und pushen:
 
 ```bash
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 4. Der Release-Workflow prüft automatisch:
@@ -146,7 +146,7 @@ Nach erfolgreichem PyPI-Release in Claude Desktop:
 
 Claude Desktop danach komplett neu starten.
 
-Wenn du eine bestimmte Release-Version testen willst, nutze statt `@latest` eine feste Version, z. B. `flin-linkedin-posts-mcp@0.1.1`.
+Wenn du eine bestimmte Release-Version testen willst, nutze statt `@latest` eine feste Version, z. B. `flin-linkedin-posts-mcp@0.1.2`.
 
 ## Entwicklung
 
