@@ -2,14 +2,22 @@
 
 `flin-linkedin-posts-mcp` is a local MCP server for reading and analyzing the authenticated member's own LinkedIn post/share data.
 
-It uses LinkedIn native OAuth PKCE login and the Member Data Portability API. Each user runs the MCP locally, signs into their own LinkedIn account in the system browser, and stores their token on their own machine.
+It uses LinkedIn member OAuth login and the Member Data Portability API. Each user runs the MCP locally, signs into their own LinkedIn account in the system browser, and stores their token on their own machine.
+
+The MCP supports two login flows:
+
+- Regular 3-legged OAuth with a client secret. This is the recommended local setup for most LinkedIn Developer apps.
+- Native OAuth PKCE. This does not require a client secret, but LinkedIn must explicitly enable the Native PKCE protocol for your app.
 
 ## Important Access Requirement
 
 This MCP does not bypass LinkedIn API approval. The LinkedIn Developer app used by the local user must have access to Member Data Portability API (3rd Party) and the `r_dma_portability_3rd_party` permission. Without that product/scope, LinkedIn returns `403 ACCESS_DENIED` for `memberSnapshotData`.
 
+Native PKCE is a separate LinkedIn app capability. If LinkedIn shows `Not enough permissions to access Native PKCE protocol`, use the regular 3-legged OAuth setup below or ask LinkedIn to enable Native PKCE for the app.
+
 Relevant LinkedIn docs:
 
+- 3-legged OAuth: https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow
 - Native OAuth PKCE: https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow-native
 - Member Snapshot API: https://learn.microsoft.com/en-us/linkedin/dma/member-data-portability/shared/member-snapshot-api
 - Snapshot domains: https://learn.microsoft.com/en-us/linkedin/dma/member-data-portability/shared/snapshot-domain
@@ -17,7 +25,7 @@ Relevant LinkedIn docs:
 
 ## Features
 
-- Browser-based LinkedIn login with OAuth PKCE
+- Browser-based LinkedIn login with regular OAuth or native PKCE
 - Local token storage outside the repository
 - Auth status and logout tools
 - Snapshot domain count/debug tool
@@ -39,8 +47,14 @@ Required for login:
 
 - `LINKEDIN_CLIENT_ID`: LinkedIn Developer app client ID
 
+Recommended for regular 3-legged OAuth:
+
+- `LINKEDIN_CLIENT_SECRET`: LinkedIn Developer app client secret. If set, `LINKEDIN_OAUTH_FLOW` defaults to `authorization_code`.
+- `LINKEDIN_REDIRECT_URI`: exact local callback URI registered in the LinkedIn app, for example `http://127.0.0.1:63141/callback`.
+
 Optional:
 
+- `LINKEDIN_OAUTH_FLOW`: `authorization_code` or `native_pkce`. Defaults to `authorization_code` when `LINKEDIN_CLIENT_SECRET` is set, otherwise `native_pkce`.
 - `LINKEDIN_SCOPES`: defaults to `r_dma_portability_3rd_party`
 - `LINKEDIN_API_VERSION`: defaults to `202312`
 - `LINKEDIN_RESTLI_PROTOCOL_VERSION`: defaults to `2.0.0`
@@ -56,9 +70,9 @@ The MCP intentionally does not require `LINKEDIN_ACCESS_TOKEN` anymore. Tokens a
 1. Create or open a LinkedIn Developer app.
 2. Add/obtain access to `Member Data Portability API (3rd Party)`.
 3. Make sure the app can request `r_dma_portability_3rd_party`.
-4. Configure native PKCE OAuth support with loopback redirect URIs.
-5. Add a loopback redirect URI pattern supported by LinkedIn, for example `http://127.0.0.1:{port}/callback` if the portal allows dynamic loopback ports. If the portal requires exact ports, run the MCP with a matching callback port after extending the config.
-6. Use the app's Client ID as `LINKEDIN_CLIENT_ID`.
+4. For regular 3-legged OAuth, add an exact loopback redirect URL in the app's Auth tab, for example `http://127.0.0.1:63141/callback`.
+5. Set `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, and `LINKEDIN_REDIRECT_URI` to the same redirect URL.
+6. For native PKCE only, ask LinkedIn to enable Native PKCE OAuth for the app, omit `LINKEDIN_CLIENT_SECRET`, and configure loopback redirect URIs as LinkedIn requires.
 
 ## Claude Desktop Configuration
 
@@ -72,6 +86,8 @@ For a published package:
       "args": ["--refresh", "flin-linkedin-posts-mcp@latest"],
       "env": {
         "LINKEDIN_CLIENT_ID": "<YOUR_LINKEDIN_CLIENT_ID>",
+        "LINKEDIN_CLIENT_SECRET": "<YOUR_LINKEDIN_CLIENT_SECRET>",
+        "LINKEDIN_REDIRECT_URI": "http://127.0.0.1:63141/callback",
         "LINKEDIN_API_VERSION": "202312"
       }
     }
@@ -90,6 +106,8 @@ For local development from this repository:
       "cwd": "/path/to/flin-linkedin-posts-mcp",
       "env": {
         "LINKEDIN_CLIENT_ID": "<YOUR_LINKEDIN_CLIENT_ID>",
+        "LINKEDIN_CLIENT_SECRET": "<YOUR_LINKEDIN_CLIENT_SECRET>",
+        "LINKEDIN_REDIRECT_URI": "http://127.0.0.1:63141/callback",
         "LINKEDIN_API_VERSION": "202312"
       }
     }
@@ -127,6 +145,8 @@ flin-linkedin-posts-mcp
 ## Troubleshooting
 
 - `LINKEDIN_CLIENT_ID is required before running login`: set `LINKEDIN_CLIENT_ID` in the MCP config.
+- `Not enough permissions to access Native PKCE protocol`: the LinkedIn app does not have Native PKCE enabled. Set `LINKEDIN_CLIENT_SECRET` and `LINKEDIN_REDIRECT_URI` to use regular 3-legged OAuth, or ask LinkedIn to enable Native PKCE for the app.
+- `LINKEDIN_REDIRECT_URI is required when LINKEDIN_OAUTH_FLOW=authorization_code`: add the same exact local callback URL to the LinkedIn app's Auth tab and to the MCP config.
 - `403 ACCESS_DENIED` for `partnerApiMemberSnapshotData`: the LinkedIn Developer app/token likely does not have Member Data Portability API access or `r_dma_portability_3rd_party`.
 - `LinkedIn token has expired`: run `login` again. If LinkedIn issued a refresh token, the MCP attempts a refresh automatically before requiring login.
 - `Timed out waiting for LinkedIn OAuth callback`: rerun `login` and complete the browser flow within `LINKEDIN_OAUTH_TIMEOUT_SECONDS`.

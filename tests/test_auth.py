@@ -20,11 +20,15 @@ from flin_linkedin_posts_mcp.auth import (
     generate_code_verifier,
 )
 from flin_linkedin_posts_mcp.config import LinkedInPostsSettings
+from flin_linkedin_posts_mcp.errors import LinkedInValidationError
 
 
 def _settings(token_file: Path) -> LinkedInPostsSettings:
     return LinkedInPostsSettings(
         client_id="client-123",
+        client_secret=None,
+        oauth_flow="native_pkce",
+        redirect_uri=None,
         scopes=("r_dma_portability_3rd_party",),
         api_version="202312",
         restli_protocol_version="2.0.0",
@@ -98,6 +102,37 @@ def test_oauth_client_builds_native_pkce_authorization_url(tmp_path: Path) -> No
     assert "code_challenge_method=S256" in url
 
 
+def test_oauth_client_builds_authorization_code_url_without_pkce(tmp_path: Path) -> None:
+    client = LinkedInOAuthClient(
+        LinkedInPostsSettings(
+            client_id="client-123",
+            client_secret="secret-123",
+            oauth_flow="authorization_code",
+            redirect_uri="http://127.0.0.1:63141/callback",
+            scopes=("r_dma_portability_3rd_party",),
+            api_version="202312",
+            restli_protocol_version="2.0.0",
+            timeout_seconds=10,
+            max_retries=1,
+            oauth_timeout_seconds=30,
+            token_file=tmp_path / "tokens.json",
+        )
+    )
+
+    url = client.authorization_url(
+        redirect_uri="http://127.0.0.1:63141/callback",
+        state="state-123",
+        code_challenge="challenge-123",
+    )
+
+    assert url.startswith("https://www.linkedin.com/oauth/v2/authorization?")
+    assert "client_id=client-123" in url
+    assert "redirect_uri=http%3A%2F%2F127.0.0.1%3A63141%2Fcallback" in url
+    assert "scope=r_dma_portability_3rd_party" in url
+    assert "code_challenge" not in url
+    assert "code_challenge_method" not in url
+
+
 @respx.mock
 def test_oauth_client_exchanges_code_for_token_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(time, "time", lambda: 1000.0)
@@ -131,3 +166,72 @@ def test_oauth_client_exchanges_code_for_token_record(tmp_path: Path, monkeypatc
     assert b"grant_type=authorization_code" in request.content
     assert b"client_id=client-123" in request.content
     assert b"code_verifier=verifier-123" in request.content
+
+
+@respx.mock
+def test_oauth_client_exchanges_authorization_code_with_client_secret(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(time, "time", lambda: 1000.0)
+    route = respx.post("https://www.linkedin.com/oauth/v2/accessToken").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "access_token": "access",
+                "expires_in": 3600,
+                "scope": "r_dma_portability_3rd_party",
+                "token_type": "Bearer",
+            },
+        )
+    )
+    client = LinkedInOAuthClient(
+        LinkedInPostsSettings(
+            client_id="client-123",
+            client_secret="secret-123",
+            oauth_flow="authorization_code",
+            redirect_uri="http://127.0.0.1:63141/callback",
+            scopes=("r_dma_portability_3rd_party",),
+            api_version="202312",
+            restli_protocol_version="2.0.0",
+            timeout_seconds=10,
+            max_retries=1,
+            oauth_timeout_seconds=30,
+            token_file=tmp_path / "tokens.json",
+        )
+    )
+
+    record = client.exchange_code(
+        code="code-123",
+        redirect_uri="http://127.0.0.1:63141/callback",
+        code_verifier="verifier-123",
+    )
+
+    assert record.access_token == "access"
+    request = route.calls[0].request
+    assert b"client_id=client-123" in request.content
+    assert b"client_secret=secret-123" in request.content
+    assert b"code_verifier" not in request.content
+
+
+def test_authorization_code_flow_requires_configured_redirect_uri(tmp_path: Path) -> None:
+    settings = LinkedInPostsSettings(
+        client_id="client-123",
+        client_secret="secret-123",
+        oauth_flow="authorization_code",
+        redirect_uri=None,
+        scopes=("r_dma_portability_3rd_party",),
+        api_version="202312",
+        restli_protocol_version="2.0.0",
+        timeout_seconds=10,
+        max_retries=1,
+        oauth_timeout_seconds=30,
+        token_file=tmp_path / "tokens.json",
+    )
+    client = LinkedInOAuthClient(settings)
+
+    with pytest.raises(LinkedInValidationError, match="LINKEDIN_REDIRECT_URI"):
+        client.authorization_url(
+            redirect_uri="http://127.0.0.1:63141/callback",
+            state="state-123",
+            code_challenge="challenge-123",
+        )

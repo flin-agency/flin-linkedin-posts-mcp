@@ -29,6 +29,9 @@ class DummyClient:
 def _settings(token_file: Path) -> LinkedInPostsSettings:
     return LinkedInPostsSettings(
         client_id="client-123",
+        client_secret=None,
+        oauth_flow="native_pkce",
+        redirect_uri=None,
         scopes=("r_dma_portability_3rd_party",),
         api_version="202312",
         restli_protocol_version="2.0.0",

@@ -19,8 +19,10 @@ import httpx
 from .config import LinkedInPostsSettings
 from .errors import LinkedInAuthError, LinkedInValidationError
 
-AUTHORIZATION_ENDPOINT = "https://www.linkedin.com/oauth/native-pkce/authorization"
+NATIVE_PKCE_AUTHORIZATION_ENDPOINT = "https://www.linkedin.com/oauth/native-pkce/authorization"
+AUTHORIZATION_CODE_ENDPOINT = "https://www.linkedin.com/oauth/v2/authorization"
 TOKEN_ENDPOINT = "https://www.linkedin.com/oauth/v2/accessToken"
+SUPPORTED_OAUTH_FLOWS = {"native_pkce", "authorization_code"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,29 +129,50 @@ class LinkedInOAuthClient:
     def authorization_url(self, *, redirect_uri: str, state: str, code_challenge: str) -> str:
         if not self.settings.client_id:
             raise LinkedInValidationError("LINKEDIN_CLIENT_ID is required before running login")
+        flow = self._oauth_flow()
         params = {
             "response_type": "code",
             "client_id": self.settings.client_id,
             "redirect_uri": redirect_uri,
             "state": state,
             "scope": " ".join(self.settings.scopes),
-            "code_challenge": code_challenge,
-            "code_challenge_method": "S256",
         }
-        return f"{AUTHORIZATION_ENDPOINT}?{urlencode(params)}"
+        if flow == "native_pkce":
+            params["code_challenge"] = code_challenge
+            params["code_challenge_method"] = "S256"
+            return f"{NATIVE_PKCE_AUTHORIZATION_ENDPOINT}?{urlencode(params)}"
+
+        if not self.settings.client_secret:
+            raise LinkedInValidationError(
+                "LINKEDIN_CLIENT_SECRET is required when LINKEDIN_OAUTH_FLOW=authorization_code"
+            )
+        if not self.settings.redirect_uri:
+            raise LinkedInValidationError(
+                "LINKEDIN_REDIRECT_URI is required when LINKEDIN_OAUTH_FLOW=authorization_code"
+            )
+        return f"{AUTHORIZATION_CODE_ENDPOINT}?{urlencode(params)}"
 
     def exchange_code(self, *, code: str, redirect_uri: str, code_verifier: str) -> TokenRecord:
         if not self.settings.client_id:
             raise LinkedInValidationError("LINKEDIN_CLIENT_ID is required before running login")
+        flow = self._oauth_flow()
+        data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "client_id": self.settings.client_id,
+        }
+        if flow == "native_pkce":
+            data["code_verifier"] = code_verifier
+        else:
+            if not self.settings.client_secret:
+                raise LinkedInValidationError(
+                    "LINKEDIN_CLIENT_SECRET is required when LINKEDIN_OAUTH_FLOW=authorization_code"
+                )
+            data["client_secret"] = self.settings.client_secret
         response = self._client.post(
             TOKEN_ENDPOINT,
-            data={
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": redirect_uri,
-                "client_id": self.settings.client_id,
-                "code_verifier": code_verifier,
-            },
+            data=data,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
         if response.status_code >= 400:
@@ -163,13 +186,20 @@ class LinkedInOAuthClient:
     def refresh_access_token(self, refresh_token: str) -> TokenRecord:
         if not self.settings.client_id:
             raise LinkedInValidationError("LINKEDIN_CLIENT_ID is required before refreshing token")
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": self.settings.client_id,
+        }
+        if self._oauth_flow() == "authorization_code":
+            if not self.settings.client_secret:
+                raise LinkedInValidationError(
+                    "LINKEDIN_CLIENT_SECRET is required when LINKEDIN_OAUTH_FLOW=authorization_code"
+                )
+            data["client_secret"] = self.settings.client_secret
         response = self._client.post(
             TOKEN_ENDPOINT,
-            data={
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-                "client_id": self.settings.client_id,
-            },
+            data=data,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
         if response.status_code >= 400:
@@ -179,6 +209,21 @@ class LinkedInOAuthClient:
                 details={"status_code": response.status_code, "error": _safe_json(response)},
             )
         return _token_record_from_response(response.json())
+
+    def _oauth_flow(self) -> str:
+        if self.settings.oauth_flow not in SUPPORTED_OAUTH_FLOWS:
+            raise LinkedInValidationError(
+                "LINKEDIN_OAUTH_FLOW must be either native_pkce or authorization_code"
+            )
+        return self.settings.oauth_flow
+
+
+@dataclass(frozen=True, slots=True)
+class LocalRedirect:
+    uri: str
+    host: str
+    port: int
+    path: str
 
 
 def run_local_oauth_login(
@@ -194,12 +239,22 @@ def run_local_oauth_login(
     code_challenge = build_code_challenge(code_verifier)
     callback_result: dict[str, str] = {}
     callback_event = threading.Event()
+    if settings.redirect_uri:
+        local_redirect = _local_redirect_from_uri(settings.redirect_uri)
+        callback_path = local_redirect.path
+    else:
+        if settings.oauth_flow == "authorization_code":
+            raise LinkedInValidationError(
+                "LINKEDIN_REDIRECT_URI is required when LINKEDIN_OAUTH_FLOW=authorization_code"
+            )
+        local_redirect = None
+        callback_path = "/callback"
 
     class OAuthCallbackHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 - stdlib method name
             parsed = urlparse(self.path)
             query = parse_qs(parsed.query)
-            if parsed.path != "/callback":
+            if parsed.path != callback_path:
                 self.send_error(404)
                 return
 
@@ -240,8 +295,12 @@ def run_local_oauth_login(
             self.end_headers()
             self.wfile.write(body)
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), OAuthCallbackHandler)
-    redirect_uri = f"http://127.0.0.1:{server.server_port}/callback"
+    if local_redirect:
+        server = ThreadingHTTPServer((local_redirect.host, local_redirect.port), OAuthCallbackHandler)
+        redirect_uri = local_redirect.uri
+    else:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), OAuthCallbackHandler)
+        redirect_uri = f"http://127.0.0.1:{server.server_port}{callback_path}"
     oauth_client = LinkedInOAuthClient(settings)
     try:
         url = oauth_client.authorization_url(
@@ -305,6 +364,9 @@ def token_status_payload(settings: LinkedInPostsSettings, record: TokenRecord | 
         "has_refresh_token": bool(record.refresh_token) if record else False,
         "refresh_expires_at": record.refresh_expires_at if record else None,
         "client_id_configured": bool(settings.client_id),
+        "client_secret_configured": bool(settings.client_secret),
+        "oauth_flow": settings.oauth_flow,
+        "redirect_uri_configured": bool(settings.redirect_uri),
         "token_file": str(settings.token_file),
     }
 
@@ -337,6 +399,28 @@ def _first_query_value(query: Mapping[str, list[str]], key: str) -> str | None:
     if not values:
         return None
     return values[0]
+
+
+def _local_redirect_from_uri(uri: str) -> LocalRedirect:
+    parsed = urlparse(uri)
+    if parsed.scheme != "http":
+        raise LinkedInValidationError(
+            "LINKEDIN_REDIRECT_URI must be an http loopback URL such as "
+            "http://127.0.0.1:63141/callback"
+        )
+    if parsed.hostname not in {"127.0.0.1", "localhost"}:
+        raise LinkedInValidationError("LINKEDIN_REDIRECT_URI must use 127.0.0.1 or localhost")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise LinkedInValidationError("LINKEDIN_REDIRECT_URI must include a valid port") from exc
+    if port is None:
+        raise LinkedInValidationError("LINKEDIN_REDIRECT_URI must include a port")
+    if not parsed.path or parsed.path == "/":
+        raise LinkedInValidationError("LINKEDIN_REDIRECT_URI must include a callback path")
+    if parsed.query or parsed.fragment:
+        raise LinkedInValidationError("LINKEDIN_REDIRECT_URI must not include query strings or fragments")
+    return LocalRedirect(uri=uri, host=parsed.hostname, port=port, path=parsed.path)
 
 
 def _oauth_error_message(response: httpx.Response) -> str:

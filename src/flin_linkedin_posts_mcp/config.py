@@ -9,6 +9,9 @@ from typing import Mapping
 @dataclass(frozen=True, slots=True)
 class LinkedInPostsSettings:
     client_id: str | None
+    client_secret: str | None
+    oauth_flow: str
+    redirect_uri: str | None
     scopes: tuple[str, ...]
     api_version: str
     restli_protocol_version: str
@@ -20,6 +23,11 @@ class LinkedInPostsSettings:
 
 def load_config(env: Mapping[str, str] | None = None) -> LinkedInPostsSettings:
     source = os.environ if env is None else env
+    client_secret = source.get("LINKEDIN_CLIENT_SECRET") or None
+    oauth_flow = source.get("LINKEDIN_OAUTH_FLOW")
+    if oauth_flow is None:
+        oauth_flow = "authorization_code" if client_secret else "native_pkce"
+    oauth_flow = oauth_flow.strip().lower().replace("-", "_")
     scopes = tuple(scope for scope in source.get("LINKEDIN_SCOPES", "r_dma_portability_3rd_party").split() if scope)
     token_file = Path(
         source.get(
@@ -30,6 +38,9 @@ def load_config(env: Mapping[str, str] | None = None) -> LinkedInPostsSettings:
 
     return LinkedInPostsSettings(
         client_id=source.get("LINKEDIN_CLIENT_ID") or None,
+        client_secret=client_secret,
+        oauth_flow=oauth_flow,
+        redirect_uri=source.get("LINKEDIN_REDIRECT_URI") or None,
         scopes=scopes,
         api_version=source.get("LINKEDIN_API_VERSION", "202312"),
         restli_protocol_version=source.get("LINKEDIN_RESTLI_PROTOCOL_VERSION", "2.0.0"),
