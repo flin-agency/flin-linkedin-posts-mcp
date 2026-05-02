@@ -87,7 +87,7 @@ For local development from this repository:
     "flin-linkedin-posts-mcp": {
       "command": "uv",
       "args": ["run", "flin-linkedin-posts-mcp"],
-      "cwd": "/Users/nicolasg/Antigravity/flin-linkedin-posts-mcp",
+      "cwd": "/path/to/flin-linkedin-posts-mcp",
       "env": {
         "LINKEDIN_CLIENT_ID": "<YOUR_LINKEDIN_CLIENT_ID>",
         "LINKEDIN_API_VERSION": "202312"
