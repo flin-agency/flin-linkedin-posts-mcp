@@ -5,22 +5,39 @@ from typing import Any, Callable
 from .config import LinkedInPostsSettings
 from .guards import assert_read_only_tool
 from .linkedin_client import LinkedInClient
-from .tools.member_posts import analyze_member_posts, get_member_profile, get_post, list_member_posts
+from .tools.member_posts import (
+    analyze_member_posts,
+    auth_status,
+    list_member_posts,
+    list_snapshot_domains,
+    login,
+    logout,
+)
 
-ToolHandler = Callable[[LinkedInClient, LinkedInPostsSettings, dict[str, Any]], dict[str, Any]]
+ToolHandler = Callable[[LinkedInClient | None, LinkedInPostsSettings, dict[str, Any]], dict[str, Any]]
 
 TOOL_HANDLERS: dict[str, ToolHandler] = {
-    "get_member_profile": lambda client, settings, arguments: get_member_profile(
+    "auth_status": lambda client, settings, arguments: auth_status(
+        client=client,
+        settings=settings,
+        arguments=arguments,
+    ),
+    "login": lambda client, settings, arguments: login(
+        client=client,
+        settings=settings,
+        arguments=arguments,
+    ),
+    "logout": lambda client, settings, arguments: logout(
+        client=client,
+        settings=settings,
+        arguments=arguments,
+    ),
+    "list_snapshot_domains": lambda client, settings, arguments: list_snapshot_domains(
         client=client,
         settings=settings,
         arguments=arguments,
     ),
     "list_member_posts": lambda client, settings, arguments: list_member_posts(
-        client=client,
-        settings=settings,
-        arguments=arguments,
-    ),
-    "get_post": lambda client, settings, arguments: get_post(
         client=client,
         settings=settings,
         arguments=arguments,
@@ -38,7 +55,7 @@ def dispatch_tool(
     arguments: dict[str, Any],
     *,
     settings: LinkedInPostsSettings,
-    client: LinkedInClient,
+    client: LinkedInClient | None = None,
 ) -> dict[str, Any]:
     assert_read_only_tool(name)
     try:

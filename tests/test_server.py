@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 
 from flin_linkedin_posts_mcp import server
 from flin_linkedin_posts_mcp.config import LinkedInPostsSettings
@@ -52,11 +53,14 @@ def test_call_tool_unexpected_exception_does_not_leak_internal_error_details(mon
     monkeypatch.setattr(server, "dispatch_tool", _boom)
 
     settings = LinkedInPostsSettings(
-        access_token="token",
+        client_id="client-123",
+        scopes=("r_dma_portability_3rd_party",),
         api_version="202602",
         restli_protocol_version="2.0.0",
         timeout_seconds=10,
         max_retries=1,
+        oauth_timeout_seconds=30,
+        token_file=Path("/tmp/tokens.json"),
     )
     client = type("ClientStub", (), {"last_request_id": "req-123"})()
 

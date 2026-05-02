@@ -63,6 +63,38 @@ class LinkedInClient:
         self.last_request_id = result.request_id
         return result.payload
 
+    def get_member_snapshot_data(
+        self,
+        *,
+        domain: str | None = None,
+        count: int = 100,
+        start: int | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"q": "criteria", "count": count}
+        if domain:
+            params["domain"] = domain
+        if start is not None:
+            params["start"] = start
+        return self.get_json("memberSnapshotData", params=params)
+
+    def iter_member_snapshot_elements(
+        self,
+        *,
+        domain: str | None = None,
+        page_size: int = 100,
+    ):
+        start: int | None = None
+        while True:
+            payload = self.get_member_snapshot_data(domain=domain, count=page_size, start=start)
+            elements = payload.get("elements", []) if isinstance(payload, Mapping) else []
+            for element in elements:
+                if isinstance(element, Mapping):
+                    yield element
+            next_start = _next_start_from_paging(payload.get("paging") if isinstance(payload, Mapping) else None)
+            if next_start is None:
+                break
+            start = next_start
+
     def request_json(
         self,
         method: str,
@@ -178,3 +210,22 @@ def _safe_json(response: httpx.Response) -> dict[str, Any]:
     except Exception:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _next_start_from_paging(paging: Any) -> int | None:
+    if not isinstance(paging, Mapping):
+        return None
+    links = paging.get("links")
+    if not isinstance(links, list):
+        return None
+    for link in links:
+        if not isinstance(link, Mapping) or link.get("rel") != "next":
+            continue
+        href = link.get("href")
+        if not isinstance(href, str):
+            continue
+        query = dict(parse_qsl(urlsplit(href).query, keep_blank_values=True))
+        start = query.get("start")
+        if start is not None and start.isdigit():
+            return int(start)
+    return None

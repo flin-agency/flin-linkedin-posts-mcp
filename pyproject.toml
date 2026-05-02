@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flin-linkedin-posts-mcp"
-version = "0.1.2"
-description = "Read-only MCP server for LinkedIn member posts analysis"
+version = "0.2.0"
+description = "Local MCP server for authenticated LinkedIn member post snapshots"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -20,6 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "build>=1.2",
   "pytest>=8.0",
   "respx>=0.21",
   "ruff>=0.6",

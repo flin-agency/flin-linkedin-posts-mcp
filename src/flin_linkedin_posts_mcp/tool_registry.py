@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from typing import Any
 
 
-MEMBER_URN_PATTERN = r"^urn:li:person:[A-Za-z0-9_-]+$"
-POST_URN_PATTERN = r"^urn:li:(?:share|ugcPost|post):[A-Za-z0-9_-]+$"
 DATE_PATTERN = r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
 
 
@@ -19,46 +17,50 @@ class ToolSpec:
 def tool_specs() -> list[ToolSpec]:
     return [
         ToolSpec(
-            name="get_member_profile",
-            description="Resolve the currently authenticated LinkedIn member profile from the access token",
+            name="auth_status",
+            description="Check whether the local MCP has a usable LinkedIn OAuth token",
             input_schema={"type": "object", "properties": {}, "additionalProperties": False},
         ),
         ToolSpec(
-            name="list_member_posts",
-            description="List LinkedIn posts authored by the current member or a specific member URN",
+            name="login",
+            description="Start browser-based LinkedIn OAuth login and store the token locally",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        ),
+        ToolSpec(
+            name="logout",
+            description="Delete the locally stored LinkedIn OAuth token",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        ),
+        ToolSpec(
+            name="list_snapshot_domains",
+            description="List available LinkedIn Member Data Portability snapshot domains and item counts",
             input_schema={
                 "type": "object",
                 "properties": {
-                    "author_urn": {"type": "string", "pattern": MEMBER_URN_PATTERN},
                     "page_size": {"type": "integer", "minimum": 1, "maximum": 100},
-                    "page_token": {"type": "string"},
-                    "include_raw": {"type": "boolean"},
                 },
                 "additionalProperties": False,
             },
         ),
         ToolSpec(
-            name="get_post",
-            description="Fetch a single LinkedIn post and normalize its text/media fields",
+            name="list_member_posts",
+            description="List posts/share records for the authenticated LinkedIn member",
             input_schema={
                 "type": "object",
                 "properties": {
-                    "post_urn": {"type": "string", "pattern": POST_URN_PATTERN},
+                    "page_size": {"type": "integer", "minimum": 1, "maximum": 100},
                     "include_raw": {"type": "boolean"},
                 },
-                "required": ["post_urn"],
                 "additionalProperties": False,
             },
         ),
         ToolSpec(
             name="analyze_member_posts",
-            description="Analyze a member's recent LinkedIn posts and return summary metrics and top themes",
+            description="Analyze the authenticated member's LinkedIn posts/share records",
             input_schema={
                 "type": "object",
                 "properties": {
-                    "author_urn": {"type": "string", "pattern": MEMBER_URN_PATTERN},
                     "page_size": {"type": "integer", "minimum": 1, "maximum": 100},
-                    "page_token": {"type": "string"},
                     "top_n": {"type": "integer", "minimum": 1, "maximum": 25},
                     "include_posts": {"type": "boolean"},
                     "published_after": {"type": "string", "pattern": DATE_PATTERN},

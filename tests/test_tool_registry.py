@@ -7,8 +7,10 @@ def test_tool_registry_exposes_expected_read_only_tools() -> None:
     names = [spec.name for spec in tool_specs()]
 
     assert names == [
-        "get_member_profile",
+        "auth_status",
+        "login",
+        "logout",
+        "list_snapshot_domains",
         "list_member_posts",
-        "get_post",
         "analyze_member_posts",
     ]

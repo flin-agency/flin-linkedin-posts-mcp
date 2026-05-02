@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import date
-from typing import Any, Mapping
-from urllib.parse import quote
+from datetime import UTC, date, datetime
+from typing import Any, Callable, Mapping
 import re
 
+from ..auth import TokenStore, load_valid_token, run_local_oauth_login, token_status_payload
 from ..config import LinkedInPostsSettings
 from ..linkedin_client import LinkedInClient
 from .common import build_entity_response, build_ok_response
 
-MEMBER_URN_RE = re.compile(r"^urn:li:person:[A-Za-z0-9_-]+$")
-POST_URN_RE = re.compile(r"^urn:li:(?:share|ugcPost|post):[A-Za-z0-9_-]+$")
+MEMBER_SHARE_INFO_DOMAIN = "MEMBER_SHARE_INFO"
 WORD_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'-]{2,}")
 STOPWORDS = {
     "aber", "alle", "auch", "auf", "aus", "bei", "bin", "das", "dass", "dem", "den", "der", "des",
@@ -21,69 +20,125 @@ STOPWORDS = {
 }
 
 
-def get_member_profile(*, client: LinkedInClient, settings: LinkedInPostsSettings, arguments: dict[str, Any]) -> dict[str, Any]:
+def auth_status(*, client: Any | None, settings: LinkedInPostsSettings, arguments: dict[str, Any]) -> dict[str, Any]:
     if arguments:
-        raise ValueError("get_member_profile does not accept arguments")
-    payload = _get_member_profile_payload(client)
-    normalized = _normalize_member_profile(payload)
-    return build_entity_response(payload=normalized, api_version=settings.api_version, request_id=getattr(client, "last_request_id", None))
+        raise ValueError("auth_status does not accept arguments")
+    record = TokenStore(settings.token_file).load()
+    return build_entity_response(
+        payload=token_status_payload(settings, record),
+        api_version=settings.api_version,
+        request_id=getattr(client, "last_request_id", None),
+    )
 
 
-def list_member_posts(*, client: LinkedInClient, settings: LinkedInPostsSettings, arguments: dict[str, Any]) -> dict[str, Any]:
+def login(*, client: Any | None, settings: LinkedInPostsSettings, arguments: dict[str, Any]) -> dict[str, Any]:
+    if arguments:
+        raise ValueError("login does not accept arguments")
+    record = run_local_oauth_login(settings)
+    return build_entity_response(
+        payload=token_status_payload(settings, record),
+        api_version=settings.api_version,
+        request_id=getattr(client, "last_request_id", None),
+    )
+
+
+def logout(*, client: Any | None, settings: LinkedInPostsSettings, arguments: dict[str, Any]) -> dict[str, Any]:
+    if arguments:
+        raise ValueError("logout does not accept arguments")
+    TokenStore(settings.token_file).clear()
+    return build_entity_response(
+        payload=token_status_payload(settings, None),
+        api_version=settings.api_version,
+        request_id=getattr(client, "last_request_id", None),
+    )
+
+
+def list_snapshot_domains(
+    *,
+    client: Any | None,
+    settings: LinkedInPostsSettings,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    page_size = _as_int(arguments.get("page_size"), parameter_name="page_size", default=100, minimum=1, maximum=100)
+
+    def collect(runtime_client: Any) -> list[dict[str, Any]]:
+        counts: Counter[str] = Counter()
+        for element in runtime_client.iter_member_snapshot_elements(domain=None, page_size=page_size):
+            domain = element.get("snapshotDomain") if isinstance(element, Mapping) else None
+            if not isinstance(domain, str) or not domain:
+                continue
+            snapshot_data = element.get("snapshotData")
+            counts[domain] += len(snapshot_data) if isinstance(snapshot_data, list) else 0
+        return [{"domain": domain, "count": count} for domain, count in sorted(counts.items())]
+
+    data = _with_linkedin_client(client=client, settings=settings, callback=collect)
+    return build_ok_response(
+        data=data,
+        next_after=None,
+        has_next=False,
+        api_version=settings.api_version,
+        request_id=getattr(client, "last_request_id", None),
+    )
+
+
+def list_member_posts(
+    *,
+    client: Any | None,
+    settings: LinkedInPostsSettings,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
     include_raw = _as_bool(arguments.get("include_raw"), parameter_name="include_raw", default=False)
-    page_size = _as_int(arguments.get("page_size"), parameter_name="page_size", default=25, minimum=1, maximum=100)
-    author_urn = _resolve_author_urn(client=client, author_urn=arguments.get("author_urn"))
-    params: dict[str, Any] = {"q": "author", "author": author_urn, "count": page_size}
-    if arguments.get("page_token"):
-        params["start"] = arguments["page_token"]
-    payload = client.get_json("posts", params=params)
-    elements = payload.get("elements", []) if isinstance(payload, Mapping) else []
-    posts = [_normalize_post(item, include_raw=include_raw) for item in elements if isinstance(item, Mapping)]
-    paging = payload.get("paging", {}) if isinstance(payload, Mapping) else {}
-    next_token = _next_page_token(paging, page_size=page_size)
-    return build_ok_response(data=posts, next_after=next_token, has_next=bool(next_token), api_version=settings.api_version, request_id=getattr(client, "last_request_id", None))
+    page_size = _as_int(arguments.get("page_size"), parameter_name="page_size", default=100, minimum=1, maximum=100)
+
+    def collect(runtime_client: Any) -> list[dict[str, Any]]:
+        posts: list[dict[str, Any]] = []
+        for element in runtime_client.iter_member_snapshot_elements(domain=MEMBER_SHARE_INFO_DOMAIN, page_size=page_size):
+            if element.get("snapshotDomain") != MEMBER_SHARE_INFO_DOMAIN:
+                continue
+            posts.extend(_posts_from_snapshot_element(element, include_raw=include_raw))
+        posts.sort(key=lambda post: post.get("published_at") or "", reverse=True)
+        return posts
+
+    posts = _with_linkedin_client(client=client, settings=settings, callback=collect)
+    return build_ok_response(
+        data=posts,
+        next_after=None,
+        has_next=False,
+        api_version=settings.api_version,
+        request_id=getattr(client, "last_request_id", None),
+    )
 
 
-def get_post(*, client: LinkedInClient, settings: LinkedInPostsSettings, arguments: dict[str, Any]) -> dict[str, Any]:
-    post_urn = _normalize_post_urn(arguments["post_urn"], parameter_name="post_urn")
-    include_raw = _as_bool(arguments.get("include_raw"), parameter_name="include_raw", default=False)
-    encoded = quote(post_urn, safe="")
-    payload = client.get_json(f"posts/{encoded}", params={})
-    normalized = _normalize_post(payload, include_raw=include_raw)
-    return build_entity_response(payload=normalized, api_version=settings.api_version, request_id=getattr(client, "last_request_id", None))
-
-
-def analyze_member_posts(*, client: LinkedInClient, settings: LinkedInPostsSettings, arguments: dict[str, Any]) -> dict[str, Any]:
+def analyze_member_posts(
+    *,
+    client: Any | None,
+    settings: LinkedInPostsSettings,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
     include_posts = _as_bool(arguments.get("include_posts"), parameter_name="include_posts", default=True)
     top_n = _as_int(arguments.get("top_n"), parameter_name="top_n", default=10, minimum=1, maximum=25)
     published_after = arguments.get("published_after")
-    if published_after is not None:
-        published_after_date = date.fromisoformat(published_after)
-    else:
-        published_after_date = None
+    published_after_date = date.fromisoformat(published_after) if published_after is not None else None
 
-    listing = list_member_posts(client=client, settings=settings, arguments={
-        "author_urn": arguments.get("author_urn"),
-        "page_size": arguments.get("page_size", 25),
-        "page_token": arguments.get("page_token"),
-        "include_raw": False,
-    })
+    listing = list_member_posts(
+        client=client,
+        settings=settings,
+        arguments={
+            "page_size": arguments.get("page_size", 100),
+            "include_raw": False,
+        },
+    )
     posts = listing["data"]
     if published_after_date is not None:
-        filtered_posts: list[Mapping[str, Any]] = []
-        for post in posts:
-            post_date = _post_date(post)
-            if post_date is None or post_date >= published_after_date:
-                filtered_posts.append(post)
-        posts = filtered_posts
+        posts = [post for post in posts if (post_date := _post_date(post)) is None or post_date >= published_after_date]
 
     texts = [post.get("text") or "" for post in posts]
     hashtags = Counter(tag.lower() for post in posts for tag in post.get("hashtags", []))
     mentions = Counter(mention.lower() for post in posts for mention in post.get("mentions", []))
     words = Counter(word.lower() for text in texts for word in WORD_RE.findall(text) if word.lower() not in STOPWORDS)
 
-    enriched = {
-        "author_urn": posts[0].get("author_urn") if posts else arguments.get("author_urn"),
+    enriched: dict[str, Any] = {
+        "snapshot_domain": MEMBER_SHARE_INFO_DOMAIN,
         "post_count": len(posts),
         "posts_with_text": sum(1 for text in texts if text.strip()),
         "average_text_length": round(sum(len(text.strip()) for text in texts) / len(posts), 2) if posts else 0,
@@ -94,74 +149,132 @@ def analyze_member_posts(*, client: LinkedInClient, settings: LinkedInPostsSetti
     }
     if include_posts:
         enriched["posts"] = posts
-    return build_entity_response(payload=enriched, api_version=settings.api_version, request_id=getattr(client, "last_request_id", None))
+    return build_entity_response(
+        payload=enriched,
+        api_version=settings.api_version,
+        request_id=getattr(client, "last_request_id", None),
+    )
 
 
-def _resolve_author_urn(*, client: LinkedInClient, author_urn: Any) -> str:
-    if author_urn is not None:
-        return _normalize_member_urn(author_urn, parameter_name="author_urn")
-    payload = _get_member_profile_payload(client)
-    return _normalize_member_profile(payload)["member_urn"]
+def _with_linkedin_client(
+    *,
+    client: Any | None,
+    settings: LinkedInPostsSettings,
+    callback: Callable[[Any], Any],
+) -> Any:
+    if client is not None:
+        return callback(client)
+    token = load_valid_token(settings)
+    runtime_client = LinkedInClient(
+        access_token=token.access_token,
+        api_version=settings.api_version,
+        restli_protocol_version=settings.restli_protocol_version,
+        timeout_seconds=settings.timeout_seconds,
+        max_retries=settings.max_retries,
+    )
+    try:
+        return callback(runtime_client)
+    finally:
+        runtime_client.close()
 
 
-def _get_member_profile_payload(client: LinkedInClient) -> Mapping[str, Any]:
-    payload = client.get_json_url("https://api.linkedin.com/v2/userinfo")
-    if not isinstance(payload, Mapping):
-        raise ValueError("LinkedIn userinfo response must be an object")
-    return payload
+def _posts_from_snapshot_element(element: Mapping[str, Any], *, include_raw: bool) -> list[dict[str, Any]]:
+    snapshot_data = element.get("snapshotData")
+    if not isinstance(snapshot_data, list):
+        return []
+    posts: list[dict[str, Any]] = []
+    for item in snapshot_data:
+        if isinstance(item, Mapping):
+            posts.append(_normalize_snapshot_post(item, include_raw=include_raw))
+    return posts
 
 
-def _normalize_member_profile(payload: Mapping[str, Any]) -> dict[str, Any]:
-    member_id = str(payload.get("sub") or "").strip()
-    if not member_id:
-        raise ValueError("LinkedIn userinfo response did not include sub")
-    return {
-        "member_urn": f"urn:li:person:{member_id}",
-        "member_id": member_id,
-        "name": payload.get("name"),
-        "given_name": payload.get("given_name"),
-        "family_name": payload.get("family_name"),
-        "locale": payload.get("locale"),
-        "email": payload.get("email"),
-        "email_verified": payload.get("email_verified"),
-    }
-
-
-def _normalize_post(value: Mapping[str, Any], *, include_raw: bool) -> dict[str, Any]:
-    data = dict(value)
-    text = _extract_text(data)
-    normalized = {
-        "post_urn": _first_str(data, "id", "urn"),
-        "author_urn": _first_str(data, "author"),
+def _normalize_snapshot_post(data: Mapping[str, Any], *, include_raw: bool) -> dict[str, Any]:
+    raw = dict(data)
+    text = _extract_text(raw)
+    published_at = _normalize_datetime(_first_value(raw, "Date", "Created Date", "Creation Date", "Created Time", "createdAt", "publishedAt"))
+    normalized: dict[str, Any] = {
+        "post_id": _first_str(raw, "ShareId", "shareId", "id", "urn", "Activity URN"),
         "text": text,
         "hashtags": _extract_hashtags(text),
         "mentions": _extract_mentions(text),
-        "published_at": _extract_published_at(data),
-        "visibility": _extract_nested_str(data, ("visibility", "com.linkedin.ugc.MemberNetworkVisibility")),
-        "commentary": data.get("commentary"),
-        "lifecycle_state": _first_str(data, "lifecycleState"),
-        "media_urls": _extract_media_urls(data),
+        "published_at": published_at,
+        "url": _first_str(raw, "ShareLink", "URL", "Url", "Permalink", "permalink"),
+        "visibility": _first_str(raw, "Visibility", "visibility"),
+        "media_urls": _extract_media_urls(raw),
     }
     if include_raw:
-        normalized["raw"] = data
+        normalized["raw"] = raw
     return normalized
 
 
 def _extract_text(data: Mapping[str, Any]) -> str | None:
-    for path in (("commentary", "text"), ("shareCommentary", "text"), ("text",), ("commentary",)):
+    for path in (
+        ("ShareCommentary",),
+        ("Commentary",),
+        ("Text",),
+        ("Content",),
+        ("Message",),
+        ("commentary", "text"),
+        ("commentary",),
+        ("text",),
+    ):
         value = _extract_nested_str(data, path)
         if value:
             return value
     return None
 
 
-def _extract_published_at(data: Mapping[str, Any]) -> str | None:
-    for key in ("publishedAt", "publishedAtTimestamp", "createdAt"):
-        value = data.get(key)
-        if value is None:
-            continue
-        return str(value)
+def _first_value(data: Mapping[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in data and data[key] not in (None, ""):
+            return data[key]
     return None
+
+
+def _first_str(data: Mapping[str, Any], *keys: str) -> str | None:
+    value = _first_value(data, *keys)
+    return str(value).strip() if value is not None and str(value).strip() else None
+
+
+def _extract_nested_str(data: Any, path: tuple[str, ...]) -> str | None:
+    current = data
+    for key in path:
+        if not isinstance(current, Mapping):
+            return None
+        current = current.get(key)
+    if isinstance(current, str) and current.strip():
+        return current.strip()
+    return None
+
+
+def _normalize_datetime(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, int | float):
+        timestamp = float(value) / 1000 if float(value) > 10_000_000_000 else float(value)
+        return datetime.fromtimestamp(timestamp, tz=UTC).isoformat().replace("+00:00", "Z")
+    if not isinstance(value, str):
+        return str(value)
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if cleaned.endswith(" UTC"):
+        cleaned = f"{cleaned[:-4]}+00:00"
+    if cleaned.endswith("Z"):
+        cleaned = f"{cleaned[:-1]}+00:00"
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", cleaned):
+        return f"{cleaned}T00:00:00Z"
+    try:
+        parsed = datetime.fromisoformat(cleaned)
+    except ValueError:
+        match = re.match(r"^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})", cleaned)
+        if not match:
+            return value.strip()
+        parsed = datetime.fromisoformat(f"{match.group(1)}T{match.group(2)}+00:00")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _extract_media_urls(data: Any) -> list[str]:
@@ -177,25 +290,6 @@ def _extract_media_urls(data: Any) -> list[str]:
     return list(dict.fromkeys(urls))
 
 
-def _first_str(data: Mapping[str, Any], *keys: str) -> str | None:
-    for key in keys:
-        value = data.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
-
-
-def _extract_nested_str(data: Any, path: tuple[str, ...]) -> str | None:
-    current = data
-    for key in path:
-        if not isinstance(current, Mapping):
-            return None
-        current = current.get(key)
-    if isinstance(current, str) and current.strip():
-        return current.strip()
-    return None
-
-
 def _extract_hashtags(text: str | None) -> list[str]:
     if not text:
         return []
@@ -208,17 +302,6 @@ def _extract_mentions(text: str | None) -> list[str]:
     return list(dict.fromkeys(match.group(1) for match in re.finditer(r"@([\w.-]+)", text)))
 
 
-def _next_page_token(paging: Any, *, page_size: int) -> str | None:
-    if not isinstance(paging, Mapping):
-        return None
-    start = paging.get("start")
-    total = paging.get("total")
-    count = paging.get("count", page_size)
-    if isinstance(start, int) and isinstance(total, int) and start + int(count) < total:
-        return str(start + int(count))
-    return None
-
-
 def _post_date(post: Mapping[str, Any]) -> date | None:
     published_at = post.get("published_at")
     if not isinstance(published_at, str):
@@ -227,18 +310,6 @@ def _post_date(post: Mapping[str, Any]) -> date | None:
     if match:
         return date.fromisoformat(match.group(1))
     return None
-
-
-def _normalize_member_urn(value: Any, *, parameter_name: str) -> str:
-    if not isinstance(value, str) or not MEMBER_URN_RE.fullmatch(value.strip()):
-        raise ValueError(f"{parameter_name} must be a LinkedIn member URN like urn:li:person:abc123")
-    return value.strip()
-
-
-def _normalize_post_urn(value: Any, *, parameter_name: str) -> str:
-    if not isinstance(value, str) or not POST_URN_RE.fullmatch(value.strip()):
-        raise ValueError(f"{parameter_name} must be a LinkedIn post URN like urn:li:share:123")
-    return value.strip()
 
 
 def _as_bool(value: Any, *, parameter_name: str, default: bool) -> bool:

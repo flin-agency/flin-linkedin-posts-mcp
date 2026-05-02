@@ -31,7 +31,6 @@ def create_server(settings: LinkedInPostsSettings | None = None, client: Any | N
 
     server = Server("flin-linkedin-posts-mcp")
     resolved_settings = settings or load_config()
-    runtime_client = client or _client(resolved_settings)
 
     @server.list_tools()
     async def list_tools() -> list[Any]:
@@ -46,9 +45,9 @@ def create_server(settings: LinkedInPostsSettings | None = None, client: Any | N
 
     @server.call_tool()
     async def call_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
-        request_id = getattr(runtime_client, "last_request_id", None)
+        request_id = getattr(client, "last_request_id", None)
         try:
-            result = dispatch_tool(name, arguments or {}, settings=resolved_settings, client=runtime_client)
+            result = dispatch_tool(name, arguments or {}, settings=resolved_settings, client=client)
         except LinkedInPostsError as exc:
             result = error_response(
                 code=exc.error_code,
@@ -93,19 +92,6 @@ def main() -> None:
 
 async def _main() -> None:
     resolved_settings = load_config()
-    with _client(resolved_settings) as runtime_client:
-        server = create_server(resolved_settings, client=runtime_client)
-        async with stdio_server() as (read_stream, write_stream):
-            await server.run(read_stream, write_stream, server.create_initialization_options())
-
-
-def _client(settings: LinkedInPostsSettings):
-    from .linkedin_client import LinkedInClient
-
-    return LinkedInClient(
-        access_token=settings.access_token,
-        api_version=settings.api_version,
-        restli_protocol_version=settings.restli_protocol_version,
-        timeout_seconds=settings.timeout_seconds,
-        max_retries=settings.max_retries,
-    )
+    server = create_server(resolved_settings)
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(read_stream, write_stream, server.create_initialization_options())

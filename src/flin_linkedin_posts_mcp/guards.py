@@ -2,9 +2,11 @@ from __future__ import annotations
 
 
 READ_ONLY_TOOL_NAMES = {
-    "get_member_profile",
+    "auth_status",
+    "login",
+    "logout",
+    "list_snapshot_domains",
     "list_member_posts",
-    "get_post",
     "analyze_member_posts",
 }
 

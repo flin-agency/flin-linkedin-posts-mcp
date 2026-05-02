@@ -1,97 +1,134 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
-import pytest
-
+from flin_linkedin_posts_mcp.auth import TokenRecord, TokenStore
 from flin_linkedin_posts_mcp.config import LinkedInPostsSettings
-from flin_linkedin_posts_mcp.tools.member_posts import analyze_member_posts, get_member_profile, get_post, list_member_posts
+from flin_linkedin_posts_mcp.tools.member_posts import (
+    analyze_member_posts,
+    auth_status,
+    list_member_posts,
+    list_snapshot_domains,
+    logout,
+)
 
 
 @dataclass
 class DummyClient:
-    calls: list[tuple[str, dict | None]] = field(default_factory=list)
+    elements: list[dict[str, Any]]
+    calls: list[tuple[str | None, int]] = field(default_factory=list)
     last_request_id: str | None = "req-1"
 
-    def get_json(self, path: str, params: dict | None = None) -> dict:
-        self.calls.append((path, params))
-        if path == "posts":
-            return {
-                "elements": [
-                    {
-                        "id": "urn:li:share:1",
-                        "author": "urn:li:person:member-1",
-                        "commentary": {"text": "Hello LinkedIn #AI @OpenAI"},
-                        "publishedAt": "2026-03-20T10:00:00Z",
-                    },
-                    {
-                        "id": "urn:li:share:2",
-                        "author": "urn:li:person:member-1",
-                        "commentary": {"text": "Second post about analytics #AI #MCP"},
-                        "publishedAt": "2026-03-21T10:00:00Z",
-                    },
-                ],
-                "paging": {"start": 0, "count": 2, "total": 2},
-            }
-        if path.startswith("posts/"):
-            return {
-                "id": "urn:li:share:1",
-                "author": "urn:li:person:member-1",
-                "commentary": {"text": "Hello LinkedIn #AI @OpenAI"},
-                "publishedAt": "2026-03-20T10:00:00Z",
-            }
-        raise AssertionError(f"unexpected path: {path}")
-
-    def get_json_url(self, url: str, params: dict | None = None) -> dict:
-        self.calls.append((url, params))
-        if url == "https://api.linkedin.com/v2/userinfo":
-            return {"sub": "member-1", "name": "Ada Lovelace", "locale": "de_DE"}
-        raise AssertionError(f"unexpected url: {url}")
+    def iter_member_snapshot_elements(self, *, domain: str | None = None, page_size: int = 100):
+        self.calls.append((domain, page_size))
+        yield from self.elements
 
 
-@pytest.fixture
-def settings() -> LinkedInPostsSettings:
+def _settings(token_file: Path) -> LinkedInPostsSettings:
     return LinkedInPostsSettings(
-        access_token="token",
-        api_version="202602",
+        client_id="client-123",
+        scopes=("r_dma_portability_3rd_party",),
+        api_version="202312",
         restli_protocol_version="2.0.0",
         timeout_seconds=10,
         max_retries=1,
+        oauth_timeout_seconds=30,
+        token_file=token_file,
     )
 
 
-def test_get_member_profile_normalizes_userinfo(settings: LinkedInPostsSettings) -> None:
-    client = DummyClient()
+def _snapshot_elements() -> list[dict[str, Any]]:
+    return [
+        {
+            "snapshotDomain": "MEMBER_SHARE_INFO",
+            "snapshotData": [
+                {
+                    "ShareId": "share-1",
+                    "ShareCommentary": "Hello LinkedIn #AI @OpenAI",
+                    "Date": "2026-03-20 10:00:00 UTC",
+                    "ShareLink": "https://www.linkedin.com/feed/update/urn:li:share:1/",
+                    "Visibility": "PUBLIC",
+                },
+                {
+                    "ShareId": "share-2",
+                    "ShareCommentary": "Second post about analytics #AI #MCP",
+                    "Date": "2025-12-31 10:00:00 UTC",
+                },
+            ],
+        },
+        {
+            "snapshotDomain": "PROFILE",
+            "snapshotData": [{"First Name": "Nic"}],
+        },
+    ]
 
-    result = get_member_profile(client=client, settings=settings, arguments={})
 
-    assert result["data"]["member_urn"] == "urn:li:person:member-1"
-    assert result["data"]["name"] == "Ada Lovelace"
+def test_auth_status_reports_missing_token(tmp_path: Path) -> None:
+    result = auth_status(client=None, settings=_settings(tmp_path / "tokens.json"), arguments={})
+
+    assert result["data"]["authenticated"] is False
+    assert result["data"]["client_id_configured"] is True
 
 
-def test_list_member_posts_uses_resolved_member_when_author_missing(settings: LinkedInPostsSettings) -> None:
-    client = DummyClient()
+def test_auth_status_reports_stored_token(tmp_path: Path) -> None:
+    token_file = tmp_path / "tokens.json"
+    TokenStore(token_file).save(TokenRecord(access_token="access", expires_at=9999999999.0, scope="scope"))
 
-    result = list_member_posts(client=client, settings=settings, arguments={"page_size": 2})
+    result = auth_status(client=None, settings=_settings(token_file), arguments={})
+
+    assert result["data"]["authenticated"] is True
+    assert result["data"]["expired"] is False
+    assert result["data"]["scope"] == "scope"
+
+
+def test_logout_clears_stored_token(tmp_path: Path) -> None:
+    token_file = tmp_path / "tokens.json"
+    TokenStore(token_file).save(TokenRecord(access_token="access", expires_at=9999999999.0))
+
+    result = logout(client=None, settings=_settings(token_file), arguments={})
+
+    assert result["data"]["authenticated"] is False
+    assert not token_file.exists()
+
+
+def test_list_snapshot_domains_summarizes_snapshot_data_counts(tmp_path: Path) -> None:
+    client = DummyClient(_snapshot_elements())
+
+    result = list_snapshot_domains(client=client, settings=_settings(tmp_path / "tokens.json"), arguments={"page_size": 50})
+
+    assert result["data"] == [
+        {"domain": "MEMBER_SHARE_INFO", "count": 2},
+        {"domain": "PROFILE", "count": 1},
+    ]
+    assert client.calls == [(None, 50)]
+
+
+def test_list_member_posts_normalizes_member_share_info(tmp_path: Path) -> None:
+    client = DummyClient(_snapshot_elements())
+
+    result = list_member_posts(client=client, settings=_settings(tmp_path / "tokens.json"), arguments={"page_size": 25})
 
     assert result["ok"] is True
+    assert result["data"][0]["post_id"] == "share-1"
+    assert result["data"][0]["text"] == "Hello LinkedIn #AI @OpenAI"
     assert result["data"][0]["hashtags"] == ["AI"]
-    assert client.calls[0][0] == "https://api.linkedin.com/v2/userinfo"
-    assert client.calls[1] == ("posts", {"q": "author", "author": "urn:li:person:member-1", "count": 2})
+    assert result["data"][0]["mentions"] == ["OpenAI"]
+    assert result["data"][0]["published_at"] == "2026-03-20T10:00:00Z"
+    assert result["data"][0]["url"] == "https://www.linkedin.com/feed/update/urn:li:share:1/"
+    assert client.calls == [("MEMBER_SHARE_INFO", 25)]
 
 
-def test_get_post_rejects_invalid_urn(settings: LinkedInPostsSettings) -> None:
-    client = DummyClient()
+def test_analyze_member_posts_filters_by_date(tmp_path: Path) -> None:
+    client = DummyClient(_snapshot_elements())
 
-    with pytest.raises(ValueError, match="post URN"):
-        get_post(client=client, settings=settings, arguments={"post_urn": "foo"})
+    result = analyze_member_posts(
+        client=client,
+        settings=_settings(tmp_path / "tokens.json"),
+        arguments={"published_after": "2026-01-01", "top_n": 3},
+    )
 
-
-def test_analyze_member_posts_returns_top_terms(settings: LinkedInPostsSettings) -> None:
-    client = DummyClient()
-
-    result = analyze_member_posts(client=client, settings=settings, arguments={"author_urn": "urn:li:person:member-1", "page_size": 2, "top_n": 3})
-
-    assert result["data"]["post_count"] == 2
-    assert result["data"]["top_hashtags"][0] == {"value": "ai", "count": 2}
-    assert any(item["value"] == "linkedin" for item in result["data"]["top_terms"])
+    assert result["data"]["post_count"] == 1
+    assert result["data"]["posts_with_text"] == 1
+    assert result["data"]["top_hashtags"] == [{"value": "ai", "count": 1}]
