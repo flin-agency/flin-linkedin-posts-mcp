@@ -11,6 +11,7 @@ from flin_linkedin_posts_mcp.tools.member_posts import (
     auth_status,
     list_member_posts,
     list_snapshot_domains,
+    match_drafts_to_member_posts,
     logout,
 )
 
@@ -53,6 +54,9 @@ def _snapshot_elements() -> list[dict[str, Any]]:
                     "Date": "2026-03-20 10:00:00 UTC",
                     "ShareLink": "https://www.linkedin.com/feed/update/urn:li:share:1/",
                     "Visibility": "PUBLIC",
+                    "Likes": "12",
+                    "Comments": 3,
+                    "Impressions": "456",
                 },
                 {
                     "ShareId": "share-2",
@@ -120,6 +124,9 @@ def test_list_member_posts_normalizes_member_share_info(tmp_path: Path) -> None:
     assert result["data"][0]["mentions"] == ["OpenAI"]
     assert result["data"][0]["published_at"] == "2026-03-20T10:00:00Z"
     assert result["data"][0]["url"] == "https://www.linkedin.com/feed/update/urn:li:share:1/"
+    assert result["data"][0]["likes_count"] == 12
+    assert result["data"][0]["comments_count"] == 3
+    assert result["data"][0]["impressions_count"] == 456
     assert client.calls == [("MEMBER_SHARE_INFO", 25)]
 
 
@@ -135,3 +142,37 @@ def test_analyze_member_posts_filters_by_date(tmp_path: Path) -> None:
     assert result["data"]["post_count"] == 1
     assert result["data"]["posts_with_text"] == 1
     assert result["data"]["top_hashtags"] == [{"value": "ai", "count": 1}]
+
+
+def test_list_member_posts_filters_and_limits_results(tmp_path: Path) -> None:
+    client = DummyClient(_snapshot_elements())
+
+    result = list_member_posts(
+        client=client,
+        settings=_settings(tmp_path / "tokens.json"),
+        arguments={"published_after": "2026-01-01", "limit": 1},
+    )
+
+    assert [post["post_id"] for post in result["data"]] == ["share-1"]
+
+
+def test_match_drafts_to_member_posts_returns_best_matches(tmp_path: Path) -> None:
+    client = DummyClient(_snapshot_elements())
+
+    result = match_drafts_to_member_posts(
+        client=client,
+        settings=_settings(tmp_path / "tokens.json"),
+        arguments={
+            "drafts": [
+                "Hello LinkedIn #AI @OpenAI",
+                "Analytics post about MCP",
+            ],
+            "max_matches_per_draft": 1,
+        },
+    )
+
+    assert result["data"][0]["draft"] == "Hello LinkedIn #AI @OpenAI"
+    assert result["data"][0]["matches"][0]["post_id"] == "share-1"
+    assert result["data"][0]["matches"][0]["similarity"] == 1.0
+    assert result["data"][1]["draft"] == "Analytics post about MCP"
+    assert result["data"][1]["matches"][0]["post_id"] == "share-2"

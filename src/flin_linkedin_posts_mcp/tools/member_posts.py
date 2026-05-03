@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import UTC, date, datetime
+from difflib import SequenceMatcher
 from typing import Any, Callable, Mapping
 import re
 
@@ -89,6 +90,9 @@ def list_member_posts(
 ) -> dict[str, Any]:
     include_raw = _as_bool(arguments.get("include_raw"), parameter_name="include_raw", default=False)
     page_size = _as_int(arguments.get("page_size"), parameter_name="page_size", default=100, minimum=1, maximum=100)
+    limit = _as_optional_int(arguments.get("limit"), parameter_name="limit", minimum=1, maximum=500)
+    published_after = arguments.get("published_after")
+    published_after_date = date.fromisoformat(published_after) if published_after is not None else None
 
     def collect(runtime_client: Any) -> list[dict[str, Any]]:
         posts: list[dict[str, Any]] = []
@@ -97,7 +101,7 @@ def list_member_posts(
                 continue
             posts.extend(_posts_from_snapshot_element(element, include_raw=include_raw))
         posts.sort(key=lambda post: post.get("published_at") or "", reverse=True)
-        return posts
+        return _filter_posts(posts, published_after_date=published_after_date, limit=limit)
 
     posts = _with_linkedin_client(client=client, settings=settings, callback=collect)
     return build_ok_response(
@@ -156,6 +160,73 @@ def analyze_member_posts(
     )
 
 
+def match_drafts_to_member_posts(
+    *,
+    client: Any | None,
+    settings: LinkedInPostsSettings,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    drafts = arguments.get("drafts")
+    if not isinstance(drafts, list) or not drafts:
+        raise ValueError("drafts must be a non-empty array of strings")
+    normalized_drafts: list[str] = []
+    for draft in drafts:
+        if not isinstance(draft, str) or not draft.strip():
+            raise ValueError("drafts must contain only non-empty strings")
+        normalized_drafts.append(draft.strip())
+
+    max_matches_per_draft = _as_int(
+        arguments.get("max_matches_per_draft"),
+        parameter_name="max_matches_per_draft",
+        default=3,
+        minimum=1,
+        maximum=10,
+    )
+
+    listing = list_member_posts(
+        client=client,
+        settings=settings,
+        arguments={
+            "page_size": arguments.get("page_size", 100),
+            "published_after": arguments.get("published_after"),
+            "limit": arguments.get("post_limit"),
+            "include_raw": False,
+        },
+    )
+    posts = listing["data"]
+
+    matches: list[dict[str, Any]] = []
+    for draft in normalized_drafts:
+        scored_posts = sorted(
+            (
+                {
+                    "post_id": post.get("post_id"),
+                    "published_at": post.get("published_at"),
+                    "url": post.get("url"),
+                    "text": post.get("text"),
+                    "similarity": _similarity(draft, post.get("text")),
+                }
+                for post in posts
+            ),
+            key=lambda item: item["similarity"],
+            reverse=True,
+        )
+        matches.append(
+            {
+                "draft": draft,
+                "matches": scored_posts[:max_matches_per_draft],
+            }
+        )
+
+    return build_ok_response(
+        data=matches,
+        next_after=None,
+        has_next=False,
+        api_version=settings.api_version,
+        request_id=getattr(client, "last_request_id", None),
+    )
+
+
 def _with_linkedin_client(
     *,
     client: Any | None,
@@ -202,6 +273,9 @@ def _normalize_snapshot_post(data: Mapping[str, Any], *, include_raw: bool) -> d
         "url": _first_str(raw, "ShareLink", "URL", "Url", "Permalink", "permalink"),
         "visibility": _first_str(raw, "Visibility", "visibility"),
         "media_urls": _extract_media_urls(raw),
+        "likes_count": _first_int(raw, "Likes", "Like Count", "likes", "likeCount"),
+        "comments_count": _first_int(raw, "Comments", "Comment Count", "comments", "commentCount"),
+        "impressions_count": _first_int(raw, "Impressions", "Impression Count", "Views", "impressions", "impressionCount", "viewCount"),
     }
     if include_raw:
         normalized["raw"] = raw
@@ -235,6 +309,11 @@ def _first_value(data: Mapping[str, Any], *keys: str) -> Any:
 def _first_str(data: Mapping[str, Any], *keys: str) -> str | None:
     value = _first_value(data, *keys)
     return str(value).strip() if value is not None and str(value).strip() else None
+
+
+def _first_int(data: Mapping[str, Any], *keys: str) -> int | None:
+    value = _first_value(data, *keys)
+    return _coerce_int(value)
 
 
 def _extract_nested_str(data: Any, path: tuple[str, ...]) -> str | None:
@@ -312,6 +391,37 @@ def _post_date(post: Mapping[str, Any]) -> date | None:
     return None
 
 
+def _filter_posts(posts: list[dict[str, Any]], *, published_after_date: date | None, limit: int | None) -> list[dict[str, Any]]:
+    filtered = posts
+    if published_after_date is not None:
+        filtered = [post for post in filtered if (post_date := _post_date(post)) is None or post_date >= published_after_date]
+    if limit is not None:
+        filtered = filtered[:limit]
+    return filtered
+
+
+def _coerce_int(value: Any) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        cleaned = value.strip().replace(",", "").replace("_", "")
+        if re.fullmatch(r"-?\d+", cleaned):
+            return int(cleaned)
+    return None
+
+
+def _similarity(left: str, right: Any) -> float:
+    if not isinstance(right, str) or not right.strip():
+        return 0.0
+    normalized_left = re.sub(r"\s+", " ", left.strip().lower())
+    normalized_right = re.sub(r"\s+", " ", right.strip().lower())
+    return round(SequenceMatcher(a=normalized_left, b=normalized_right).ratio(), 4)
+
+
 def _as_bool(value: Any, *, parameter_name: str, default: bool) -> bool:
     if value is None:
         return default
@@ -323,6 +433,16 @@ def _as_bool(value: Any, *, parameter_name: str, default: bool) -> bool:
 def _as_int(value: Any, *, parameter_name: str, default: int, minimum: int, maximum: int) -> int:
     if value is None:
         return default
+    if not isinstance(value, int):
+        raise ValueError(f"{parameter_name} must be an integer")
+    if not minimum <= value <= maximum:
+        raise ValueError(f"{parameter_name} must be between {minimum} and {maximum}")
+    return value
+
+
+def _as_optional_int(value: Any, *, parameter_name: str, minimum: int, maximum: int) -> int | None:
+    if value is None:
+        return None
     if not isinstance(value, int):
         raise ValueError(f"{parameter_name} must be an integer")
     if not minimum <= value <= maximum:

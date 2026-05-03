@@ -8,6 +8,7 @@ READ_ONLY_TOOL_NAMES = {
     "list_snapshot_domains",
     "list_member_posts",
     "analyze_member_posts",
+    "match_drafts_to_member_posts",
 }
 
 

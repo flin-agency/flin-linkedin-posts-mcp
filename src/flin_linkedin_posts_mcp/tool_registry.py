@@ -50,6 +50,8 @@ def tool_specs() -> list[ToolSpec]:
                 "properties": {
                     "page_size": {"type": "integer", "minimum": 1, "maximum": 100},
                     "include_raw": {"type": "boolean"},
+                    "published_after": {"type": "string", "pattern": DATE_PATTERN},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 500},
                 },
                 "additionalProperties": False,
             },
@@ -65,6 +67,27 @@ def tool_specs() -> list[ToolSpec]:
                     "include_posts": {"type": "boolean"},
                     "published_after": {"type": "string", "pattern": DATE_PATTERN},
                 },
+                "additionalProperties": False,
+            },
+        ),
+        ToolSpec(
+            name="match_drafts_to_member_posts",
+            description="Match draft post texts against the authenticated member's published LinkedIn posts",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "drafts": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 50,
+                    },
+                    "page_size": {"type": "integer", "minimum": 1, "maximum": 100},
+                    "published_after": {"type": "string", "pattern": DATE_PATTERN},
+                    "post_limit": {"type": "integer", "minimum": 1, "maximum": 500},
+                    "max_matches_per_draft": {"type": "integer", "minimum": 1, "maximum": 10},
+                },
+                "required": ["drafts"],
                 "additionalProperties": False,
             },
         ),

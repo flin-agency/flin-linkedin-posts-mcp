@@ -31,6 +31,8 @@ Relevant LinkedIn docs:
 - Snapshot domain count/debug tool
 - Authenticated member post/share listing from `MEMBER_SHARE_INFO`
 - Post analysis for counts, text length, hashtags, mentions, and top terms
+- Best-effort extraction of engagement counters when they are present in snapshot rows
+- Draft-to-published matching based on provided draft texts
 
 ## MCP Tools
 
@@ -40,6 +42,7 @@ Relevant LinkedIn docs:
 4. `list_snapshot_domains`
 5. `list_member_posts`
 6. `analyze_member_posts`
+7. `match_drafts_to_member_posts`
 
 ## Configuration
 
@@ -123,6 +126,7 @@ After adding the config, restart the MCP host and call:
 2. `login`
 3. `list_snapshot_domains`
 4. `list_member_posts` or `analyze_member_posts`
+5. `match_drafts_to_member_posts` if you want to compare draft text to published posts
 
 ## Local Development
 
@@ -158,3 +162,5 @@ flin-linkedin-posts-mcp
 - The MCP reads only the authenticated member's own snapshot data.
 - It does not support arbitrary-author LinkedIn post lookup.
 - `MEMBER_SHARE_INFO` is snapshot/export-style data, so field names can vary. The normalizer is intentionally tolerant and keeps `include_raw=true` available for debugging.
+- LinkedIn's portability data for `Shares` is documented around fields like date, link, commentary, media URL, and visibility. Likes, comments, and impressions are exposed only if they appear in the snapshot payload returned for that member.
+- Saved LinkedIn drafts are not exposed as a documented portability snapshot domain here. `match_drafts_to_member_posts` compares draft texts you already have against published posts; it does not fetch drafts from LinkedIn.

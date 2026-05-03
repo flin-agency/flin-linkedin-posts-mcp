@@ -11,6 +11,7 @@ from .tools.member_posts import (
     list_member_posts,
     list_snapshot_domains,
     login,
+    match_drafts_to_member_posts,
     logout,
 )
 
@@ -43,6 +44,11 @@ TOOL_HANDLERS: dict[str, ToolHandler] = {
         arguments=arguments,
     ),
     "analyze_member_posts": lambda client, settings, arguments: analyze_member_posts(
+        client=client,
+        settings=settings,
+        arguments=arguments,
+    ),
+    "match_drafts_to_member_posts": lambda client, settings, arguments: match_drafts_to_member_posts(
         client=client,
         settings=settings,
         arguments=arguments,

@@ -13,4 +13,5 @@ def test_tool_registry_exposes_expected_read_only_tools() -> None:
         "list_snapshot_domains",
         "list_member_posts",
         "analyze_member_posts",
+        "match_drafts_to_member_posts",
     ]
