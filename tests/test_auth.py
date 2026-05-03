@@ -246,15 +246,14 @@ def test_local_oauth_error_callback_page_shows_linkedin_description(tmp_path: Pa
         query = parse_qs(urlparse(url).query)
         redirect_uri = query["redirect_uri"][0]
         state = query["state"][0]
-        response = httpx.get(
-            f"{redirect_uri}?{urlencode(
-                {
-                    'state': state,
-                    'error': 'access_denied',
-                    'error_description': 'LinkedIn rejected the redirect URI',
-                }
-            )}"
+        params = urlencode(
+            {
+                "state": state,
+                "error": "access_denied",
+                "error_description": "LinkedIn rejected the redirect URI",
+            }
         )
+        response = httpx.get(f"{redirect_uri}?{params}")
         page["text"] = response.text
         return True
 
