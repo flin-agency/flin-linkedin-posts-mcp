@@ -13,7 +13,7 @@ Data reads use `GET https://api.linkedin.com/rest/memberSnapshotData` with `q=cr
 ## Configuration
 
 - `LINKEDIN_CLIENT_ID` is required for interactive login.
-- `LINKEDIN_SCOPES` defaults to `r_dma_portability_3rd_party`.
+- `LINKEDIN_SCOPES` defaults to `r_dma_portability_self_serve`.
 - `LINKEDIN_API_VERSION` defaults to `202312` for Member Data Portability.
 - `LINKEDIN_TOKEN_FILE` optionally overrides the local token store path.
 - The package must not require or ship a client secret.

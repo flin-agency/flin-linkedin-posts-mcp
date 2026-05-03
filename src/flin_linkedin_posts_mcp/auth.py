@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import base64
 import hashlib
+from html import escape
 import json
 import os
 from pathlib import Path
@@ -269,7 +270,11 @@ def run_local_oauth_login(
             if error:
                 description = _first_query_value(query, "error_description") or error
                 callback_result["error"] = description
-                self._write_page(400, "LinkedIn login was cancelled or failed. You can close this window.")
+                self._write_page(
+                    400,
+                    "LinkedIn login was cancelled or failed.",
+                    details=description,
+                )
                 callback_event.set()
                 return
 
@@ -287,8 +292,13 @@ def run_local_oauth_login(
         def log_message(self, *_: Any) -> None:
             return
 
-        def _write_page(self, status_code: int, message: str) -> None:
-            body = f"<!doctype html><title>LinkedIn MCP</title><p>{message}</p>".encode()
+        def _write_page(self, status_code: int, message: str, *, details: str | None = None) -> None:
+            detail_html = f"<p>{escape(details)}</p>" if details else ""
+            body = (
+                "<!doctype html><title>LinkedIn MCP</title>"
+                f"<p>{escape(message)}</p>{detail_html}"
+                "<p>You can close this window.</p>"
+            ).encode()
             self.send_response(status_code)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))

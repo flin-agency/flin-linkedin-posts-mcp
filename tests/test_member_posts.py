@@ -32,7 +32,7 @@ def _settings(token_file: Path) -> LinkedInPostsSettings:
         client_secret=None,
         oauth_flow="native_pkce",
         redirect_uri=None,
-        scopes=("r_dma_portability_3rd_party",),
+        scopes=("r_dma_portability_self_serve",),
         api_version="202312",
         restli_protocol_version="2.0.0",
         timeout_seconds=10,

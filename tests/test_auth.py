@@ -7,6 +7,7 @@ import os
 import re
 import time
 from pathlib import Path
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 import pytest
@@ -18,9 +19,10 @@ from flin_linkedin_posts_mcp.auth import (
     TokenStore,
     build_code_challenge,
     generate_code_verifier,
+    run_local_oauth_login,
 )
 from flin_linkedin_posts_mcp.config import LinkedInPostsSettings
-from flin_linkedin_posts_mcp.errors import LinkedInValidationError
+from flin_linkedin_posts_mcp.errors import LinkedInAuthError, LinkedInValidationError
 
 
 def _settings(token_file: Path) -> LinkedInPostsSettings:
@@ -29,7 +31,7 @@ def _settings(token_file: Path) -> LinkedInPostsSettings:
         client_secret=None,
         oauth_flow="native_pkce",
         redirect_uri=None,
-        scopes=("r_dma_portability_3rd_party",),
+        scopes=("r_dma_portability_self_serve",),
         api_version="202312",
         restli_protocol_version="2.0.0",
         timeout_seconds=10,
@@ -60,7 +62,7 @@ def test_token_store_persists_and_clears_token(tmp_path: Path) -> None:
         access_token="access",
         expires_at=12345.0,
         token_type="Bearer",
-        scope="r_dma_portability_3rd_party",
+        scope="r_dma_portability_self_serve",
         refresh_token="refresh",
         refresh_expires_at=45678.0,
     )
@@ -97,7 +99,7 @@ def test_oauth_client_builds_native_pkce_authorization_url(tmp_path: Path) -> No
     assert url.startswith("https://www.linkedin.com/oauth/native-pkce/authorization?")
     assert "client_id=client-123" in url
     assert "redirect_uri=http%3A%2F%2F127.0.0.1%3A3456%2Fcallback" in url
-    assert "scope=r_dma_portability_3rd_party" in url
+    assert "scope=r_dma_portability_self_serve" in url
     assert "code_challenge=challenge-123" in url
     assert "code_challenge_method=S256" in url
 
@@ -109,7 +111,7 @@ def test_oauth_client_builds_authorization_code_url_without_pkce(tmp_path: Path)
             client_secret="secret-123",
             oauth_flow="authorization_code",
             redirect_uri="http://127.0.0.1:63141/callback",
-            scopes=("r_dma_portability_3rd_party",),
+            scopes=("r_dma_portability_self_serve",),
             api_version="202312",
             restli_protocol_version="2.0.0",
             timeout_seconds=10,
@@ -128,7 +130,7 @@ def test_oauth_client_builds_authorization_code_url_without_pkce(tmp_path: Path)
     assert url.startswith("https://www.linkedin.com/oauth/v2/authorization?")
     assert "client_id=client-123" in url
     assert "redirect_uri=http%3A%2F%2F127.0.0.1%3A63141%2Fcallback" in url
-    assert "scope=r_dma_portability_3rd_party" in url
+    assert "scope=r_dma_portability_self_serve" in url
     assert "code_challenge" not in url
     assert "code_challenge_method" not in url
 
@@ -144,7 +146,7 @@ def test_oauth_client_exchanges_code_for_token_record(tmp_path: Path, monkeypatc
                 "expires_in": 3600,
                 "refresh_token": "refresh",
                 "refresh_token_expires_in": 86400,
-                "scope": "r_dma_portability_3rd_party",
+                "scope": "r_dma_portability_self_serve",
                 "token_type": "Bearer",
             },
         )
@@ -179,7 +181,7 @@ def test_oauth_client_exchanges_authorization_code_with_client_secret(
             json={
                 "access_token": "access",
                 "expires_in": 3600,
-                "scope": "r_dma_portability_3rd_party",
+                "scope": "r_dma_portability_self_serve",
                 "token_type": "Bearer",
             },
         )
@@ -190,7 +192,7 @@ def test_oauth_client_exchanges_authorization_code_with_client_secret(
             client_secret="secret-123",
             oauth_flow="authorization_code",
             redirect_uri="http://127.0.0.1:63141/callback",
-            scopes=("r_dma_portability_3rd_party",),
+            scopes=("r_dma_portability_self_serve",),
             api_version="202312",
             restli_protocol_version="2.0.0",
             timeout_seconds=10,
@@ -219,7 +221,7 @@ def test_authorization_code_flow_requires_configured_redirect_uri(tmp_path: Path
         client_secret="secret-123",
         oauth_flow="authorization_code",
         redirect_uri=None,
-        scopes=("r_dma_portability_3rd_party",),
+        scopes=("r_dma_portability_self_serve",),
         api_version="202312",
         restli_protocol_version="2.0.0",
         timeout_seconds=10,
@@ -235,3 +237,28 @@ def test_authorization_code_flow_requires_configured_redirect_uri(tmp_path: Path
             state="state-123",
             code_challenge="challenge-123",
         )
+
+
+def test_local_oauth_error_callback_page_shows_linkedin_description(tmp_path: Path) -> None:
+    page: dict[str, str] = {}
+
+    def open_browser(url: str) -> bool:
+        query = parse_qs(urlparse(url).query)
+        redirect_uri = query["redirect_uri"][0]
+        state = query["state"][0]
+        response = httpx.get(
+            f"{redirect_uri}?{urlencode(
+                {
+                    'state': state,
+                    'error': 'access_denied',
+                    'error_description': 'LinkedIn rejected the redirect URI',
+                }
+            )}"
+        )
+        page["text"] = response.text
+        return True
+
+    with pytest.raises(LinkedInAuthError, match="LinkedIn rejected the redirect URI"):
+        run_local_oauth_login(_settings(tmp_path / "tokens.json"), open_browser=open_browser)
+
+    assert "LinkedIn rejected the redirect URI" in page["text"]

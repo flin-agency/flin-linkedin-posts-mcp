@@ -28,7 +28,7 @@ def load_config(env: Mapping[str, str] | None = None) -> LinkedInPostsSettings:
     if oauth_flow is None:
         oauth_flow = "authorization_code" if client_secret else "native_pkce"
     oauth_flow = oauth_flow.strip().lower().replace("-", "_")
-    scopes = tuple(scope for scope in source.get("LINKEDIN_SCOPES", "r_dma_portability_3rd_party").split() if scope)
+    scopes = tuple(scope for scope in source.get("LINKEDIN_SCOPES", "r_dma_portability_self_serve").split() if scope)
     token_file = Path(
         source.get(
             "LINKEDIN_TOKEN_FILE",

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flin-linkedin-posts-mcp"
-version = "0.2.1"
+version = "0.2.2"
 description = "Local MCP server for authenticated LinkedIn member post snapshots"
 readme = "README.md"
 requires-python = ">=3.11"
