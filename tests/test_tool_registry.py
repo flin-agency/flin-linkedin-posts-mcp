@@ -14,4 +14,7 @@ def test_tool_registry_exposes_expected_read_only_tools() -> None:
         "list_member_posts",
         "analyze_member_posts",
         "match_drafts_to_member_posts",
+        "get_post_social_metadata",
+        "get_member_post_analytics",
+        "enrich_member_posts_with_engagement",
     ]

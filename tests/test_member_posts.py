@@ -8,7 +8,10 @@ from flin_linkedin_posts_mcp.auth import TokenRecord, TokenStore
 from flin_linkedin_posts_mcp.config import LinkedInPostsSettings
 from flin_linkedin_posts_mcp.tools.member_posts import (
     analyze_member_posts,
+    enrich_member_posts_with_engagement,
     auth_status,
+    get_member_post_analytics,
+    get_post_social_metadata,
     list_member_posts,
     list_snapshot_domains,
     match_drafts_to_member_posts,
@@ -21,10 +24,25 @@ class DummyClient:
     elements: list[dict[str, Any]]
     calls: list[tuple[str | None, int]] = field(default_factory=list)
     last_request_id: str | None = "req-1"
+    social_metadata_payloads: dict[str, dict[str, Any]] = field(default_factory=dict)
+    analytics_payloads: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
 
     def iter_member_snapshot_elements(self, *, domain: str | None = None, page_size: int = 100):
         self.calls.append((domain, page_size))
         yield from self.elements
+
+    def get_social_metadata(self, entity_urn: str) -> dict[str, Any]:
+        return self.social_metadata_payloads[entity_urn]
+
+    def batch_get_social_metadata(self, entity_urns: list[str]) -> dict[str, Any]:
+        return {
+            "results": {entity_urn: self.social_metadata_payloads[entity_urn] for entity_urn in entity_urns},
+            "errors": {},
+            "statuses": {},
+        }
+
+    def get_member_post_analytics(self, entity_urn: str, *, query_type: str, aggregation: str = "TOTAL") -> dict[str, Any]:
+        return self.analytics_payloads[(entity_urn, query_type)]
 
 
 def _settings(token_file: Path) -> LinkedInPostsSettings:
@@ -62,6 +80,7 @@ def _snapshot_elements() -> list[dict[str, Any]]:
                     "ShareId": "share-2",
                     "ShareCommentary": "Second post about analytics #AI #MCP",
                     "Date": "2025-12-31 10:00:00 UTC",
+                    "ShareLink": "https://www.linkedin.com/feed/update/urn:li:share:2/",
                 },
             ],
         },
@@ -144,6 +163,20 @@ def test_analyze_member_posts_filters_by_date(tmp_path: Path) -> None:
     assert result["data"]["top_hashtags"] == [{"value": "ai", "count": 1}]
 
 
+def test_analyze_member_posts_limits_included_posts_without_changing_summary(tmp_path: Path) -> None:
+    client = DummyClient(_snapshot_elements())
+
+    result = analyze_member_posts(
+        client=client,
+        settings=_settings(tmp_path / "tokens.json"),
+        arguments={"include_posts": True, "post_limit": 1},
+    )
+
+    assert result["data"]["post_count"] == 2
+    assert result["data"]["included_post_count"] == 1
+    assert [post["post_id"] for post in result["data"]["posts"]] == ["share-1"]
+
+
 def test_list_member_posts_filters_and_limits_results(tmp_path: Path) -> None:
     client = DummyClient(_snapshot_elements())
 
@@ -176,3 +209,86 @@ def test_match_drafts_to_member_posts_returns_best_matches(tmp_path: Path) -> No
     assert result["data"][0]["matches"][0]["similarity"] == 1.0
     assert result["data"][1]["draft"] == "Analytics post about MCP"
     assert result["data"][1]["matches"][0]["post_id"] == "share-2"
+
+
+def test_get_post_social_metadata_returns_normalized_counts(tmp_path: Path) -> None:
+    client = DummyClient(
+        _snapshot_elements(),
+        social_metadata_payloads={
+            "urn:li:share:123": {
+                "entity": "urn:li:share:123",
+                "commentsState": "OPEN",
+                "commentSummary": {"count": 4, "topLevelCount": 3},
+                "reactionSummaries": {
+                    "LIKE": {"reactionType": "LIKE", "count": 2},
+                    "EMPATHY": {"reactionType": "EMPATHY", "count": 1},
+                },
+            }
+        },
+    )
+
+    result = get_post_social_metadata(
+        client=client,
+        settings=_settings(tmp_path / "tokens.json"),
+        arguments={"post_urn": "urn:li:share:123"},
+    )
+
+    assert result["data"]["entity_urn"] == "urn:li:share:123"
+    assert result["data"]["comments_count"] == 4
+    assert result["data"]["reactions_total"] == 3
+    assert result["data"]["reactions_by_type"] == {"LIKE": 2, "EMPATHY": 1}
+
+
+def test_get_member_post_analytics_returns_metrics_by_type(tmp_path: Path) -> None:
+    client = DummyClient(
+        _snapshot_elements(),
+        analytics_payloads={
+            ("urn:li:share:123", "REACTION"): {"elements": [{"totalValue": {"long": 11}}]},
+            ("urn:li:share:123", "COMMENT"): {"elements": [{"totalValue": {"long": 4}}]},
+        },
+    )
+
+    result = get_member_post_analytics(
+        client=client,
+        settings=_settings(tmp_path / "tokens.json"),
+        arguments={"post_urn": "urn:li:share:123", "metric_types": ["REACTION", "COMMENT"]},
+    )
+
+    assert result["data"]["entity_urn"] == "urn:li:share:123"
+    assert result["data"]["metrics_by_type"] == {"REACTION": 11, "COMMENT": 4}
+
+
+def test_enrich_member_posts_with_engagement_merges_metadata_and_analytics(tmp_path: Path) -> None:
+    client = DummyClient(
+        _snapshot_elements(),
+        social_metadata_payloads={
+            "urn:li:share:1": {
+                "entity": "urn:li:share:1",
+                "commentSummary": {"count": 7, "topLevelCount": 6},
+                "reactionSummaries": {"LIKE": {"reactionType": "LIKE", "count": 5}},
+            },
+            "urn:li:share:2": {
+                "entity": "urn:li:share:2",
+                "commentSummary": {"count": 2, "topLevelCount": 2},
+                "reactionSummaries": {"PRAISE": {"reactionType": "PRAISE", "count": 1}},
+            },
+        },
+        analytics_payloads={
+            ("urn:li:share:1", "IMPRESSION"): {"elements": [{"totalValue": {"long": 101}}]},
+            ("urn:li:share:1", "REACTION"): {"elements": [{"totalValue": {"long": 5}}]},
+            ("urn:li:share:2", "IMPRESSION"): {"elements": [{"totalValue": {"long": 51}}]},
+            ("urn:li:share:2", "REACTION"): {"elements": [{"totalValue": {"long": 1}}]},
+        },
+    )
+
+    result = enrich_member_posts_with_engagement(
+        client=client,
+        settings=_settings(tmp_path / "tokens.json"),
+        arguments={"limit": 2, "analytics_metric_types": ["IMPRESSION", "REACTION"]},
+    )
+
+    assert result["data"][0]["entity_urn"] == "urn:li:share:1"
+    assert result["data"][0]["comments_count"] == 7
+    assert result["data"][0]["reactions_total"] == 5
+    assert result["data"][0]["analytics"] == {"IMPRESSION": 101, "REACTION": 5}
+    assert result["data"][0]["engagement_available"] is True

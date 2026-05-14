@@ -65,6 +65,7 @@ def tool_specs() -> list[ToolSpec]:
                     "page_size": {"type": "integer", "minimum": 1, "maximum": 100},
                     "top_n": {"type": "integer", "minimum": 1, "maximum": 25},
                     "include_posts": {"type": "boolean"},
+                    "post_limit": {"type": "integer", "minimum": 1, "maximum": 500},
                     "published_after": {"type": "string", "pattern": DATE_PATTERN},
                 },
                 "additionalProperties": False,
@@ -88,6 +89,57 @@ def tool_specs() -> list[ToolSpec]:
                     "max_matches_per_draft": {"type": "integer", "minimum": 1, "maximum": 10},
                 },
                 "required": ["drafts"],
+                "additionalProperties": False,
+            },
+        ),
+        ToolSpec(
+            name="get_post_social_metadata",
+            description="Fetch comment and reaction summary data for a single LinkedIn post",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "post_urn": {"type": "string"},
+                    "post_url": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+        ),
+        ToolSpec(
+            name="get_member_post_analytics",
+            description="Fetch LinkedIn analytics metrics for a single member-owned post",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "post_urn": {"type": "string"},
+                    "post_url": {"type": "string"},
+                    "metric_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 5,
+                    },
+                },
+                "additionalProperties": False,
+            },
+        ),
+        ToolSpec(
+            name="enrich_member_posts_with_engagement",
+            description="Enrich exported member posts with LinkedIn social metadata and analytics when scopes are available",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "page_size": {"type": "integer", "minimum": 1, "maximum": 100},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                    "published_after": {"type": "string", "pattern": DATE_PATTERN},
+                    "include_social_metadata": {"type": "boolean"},
+                    "include_post_analytics": {"type": "boolean"},
+                    "analytics_metric_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 5,
+                    },
+                },
                 "additionalProperties": False,
             },
         ),

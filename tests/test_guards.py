@@ -13,6 +13,9 @@ def test_read_only_guard_accepts_post_tools() -> None:
     assert_read_only_tool("list_member_posts")
     assert_read_only_tool("analyze_member_posts")
     assert_read_only_tool("match_drafts_to_member_posts")
+    assert_read_only_tool("get_post_social_metadata")
+    assert_read_only_tool("get_member_post_analytics")
+    assert_read_only_tool("enrich_member_posts_with_engagement")
 
 
 def test_read_only_guard_rejects_removed_tools() -> None:

@@ -33,6 +33,7 @@ Relevant LinkedIn docs:
 - Post analysis for counts, text length, hashtags, mentions, and top terms
 - Best-effort extraction of engagement counters when they are present in snapshot rows
 - Draft-to-published matching based on provided draft texts
+- Optional engagement enrichment via LinkedIn `socialMetadata` and `memberCreatorPostAnalytics`
 
 ## MCP Tools
 
@@ -43,6 +44,9 @@ Relevant LinkedIn docs:
 5. `list_member_posts`
 6. `analyze_member_posts`
 7. `match_drafts_to_member_posts`
+8. `get_post_social_metadata`
+9. `get_member_post_analytics`
+10. `enrich_member_posts_with_engagement`
 
 ## Configuration
 
@@ -65,6 +69,11 @@ Optional:
 - `LINKEDIN_MAX_RETRIES`: defaults to `3`
 - `LINKEDIN_OAUTH_TIMEOUT_SECONDS`: defaults to `300`
 - `LINKEDIN_TOKEN_FILE`: defaults to `~/.flin-linkedin-posts-mcp/tokens.json`
+
+Additional LinkedIn access may be required for engagement enrichment:
+
+- `socialMetadata` access for comment and reaction summaries
+- `r_member_postAnalytics` for member post impressions, reach, reactions, comments, and reshares
 
 The MCP intentionally does not require `LINKEDIN_ACCESS_TOKEN` anymore. Tokens are created through the `login` tool.
 
@@ -127,6 +136,7 @@ After adding the config, restart the MCP host and call:
 3. `list_snapshot_domains`
 4. `list_member_posts` or `analyze_member_posts`
 5. `match_drafts_to_member_posts` if you want to compare draft text to published posts
+6. `get_post_social_metadata`, `get_member_post_analytics`, or `enrich_member_posts_with_engagement` if your LinkedIn app has the required engagement scopes
 
 ## Local Development
 
@@ -156,6 +166,7 @@ flin-linkedin-posts-mcp
 - `403 ACCESS_DENIED` for `partnerApiMemberSnapshotData`: the LinkedIn Developer app/token likely does not have Member Data Portability API access or `r_dma_portability_self_serve`.
 - `LinkedIn token has expired`: run `login` again. If LinkedIn issued a refresh token, the MCP attempts a refresh automatically before requiring login.
 - `Timed out waiting for LinkedIn OAuth callback`: rerun `login` and complete the browser flow within `LINKEDIN_OAUTH_TIMEOUT_SECONDS`.
+- `403 ACCESS_DENIED` on `socialMetadata` or `memberCreatorPostAnalytics`: the LinkedIn app/token does not have the extra engagement permissions needed for those tools.
 
 ## Notes
 
@@ -164,3 +175,6 @@ flin-linkedin-posts-mcp
 - `MEMBER_SHARE_INFO` is snapshot/export-style data, so field names can vary. The normalizer is intentionally tolerant and keeps `include_raw=true` available for debugging.
 - LinkedIn's portability data for `Shares` is documented around fields like date, link, commentary, media URL, and visibility. Likes, comments, and impressions are exposed only if they appear in the snapshot payload returned for that member.
 - Saved LinkedIn drafts are not exposed as a documented portability snapshot domain here. `match_drafts_to_member_posts` compares draft texts you already have against published posts; it does not fetch drafts from LinkedIn.
+- `analyze_member_posts` can return very large payloads when `include_posts=true`. Use `post_limit` to cap the embedded `posts` list, or set `include_posts=false` when you only need aggregate metrics.
+- `enrich_member_posts_with_engagement` keeps export discovery and engagement lookup separate. It fetches exported posts first, derives post URNs, then merges in `socialMetadata` and analytics where available.
+- Bulk enrichment is intentionally bounded. Use `limit` to keep the number of analytics calls under control and expect per-post `engagement_errors` when a URN cannot be derived or LinkedIn denies a lookup.

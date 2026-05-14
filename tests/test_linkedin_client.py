@@ -5,7 +5,11 @@ import pytest
 import respx
 
 from flin_linkedin_posts_mcp.errors import LinkedInPermissionError, LinkedInRateLimitError
-from flin_linkedin_posts_mcp.linkedin_client import LinkedInClient
+from flin_linkedin_posts_mcp.linkedin_client import (
+    LinkedInClient,
+    format_member_post_analytics_entity,
+    normalize_post_urn,
+)
 
 
 @respx.mock
@@ -158,3 +162,81 @@ def test_get_json_raises_rate_limit_error_after_retries() -> None:
 
     with pytest.raises(LinkedInRateLimitError):
         client.get_json("posts", params={"q": "author"})
+
+
+def test_normalize_post_urn_handles_direct_and_encoded_values() -> None:
+    assert normalize_post_urn("urn:li:share:123") == "urn:li:share:123"
+    assert normalize_post_urn("https://www.linkedin.com/feed/update/urn%3Ali%3AugcPost%3A456") == "urn:li:ugcPost:456"
+
+
+def test_format_member_post_analytics_entity_wraps_supported_urns() -> None:
+    assert format_member_post_analytics_entity("urn:li:share:123") == "(share:urn%3Ali%3Ashare%3A123)"
+    assert format_member_post_analytics_entity("urn:li:ugcPost:456") == "(ugc:urn%3Ali%3AugcPost%3A456)"
+
+
+@respx.mock
+def test_get_social_metadata_reads_single_entity() -> None:
+    route = respx.get("https://api.linkedin.com/rest/socialMetadata/urn%3Ali%3Ashare%3A123").mock(
+        return_value=httpx.Response(200, json={"entity": "urn:li:share:123", "commentSummary": {"count": 4}})
+    )
+
+    client = LinkedInClient(
+        access_token="token",
+        api_version="202312",
+        restli_protocol_version="2.0.0",
+        timeout_seconds=10,
+        max_retries=1,
+    )
+    payload = client.get_social_metadata("urn:li:share:123")
+
+    request = route.calls[0].request
+    assert request.headers.get("Authorization") == "Bearer token"
+    assert request.headers.get("Linkedin-Version") == "202602"
+    assert payload["commentSummary"]["count"] == 4
+
+
+@respx.mock
+def test_batch_get_social_metadata_uses_batch_get_semantics() -> None:
+    route = respx.get("https://api.linkedin.com/rest/socialMetadata").mock(
+        return_value=httpx.Response(200, json={"results": {"urn:li:share:123": {"entity": "urn:li:share:123"}}})
+    )
+
+    client = LinkedInClient(
+        access_token="token",
+        api_version="202312",
+        restli_protocol_version="2.0.0",
+        timeout_seconds=10,
+        max_retries=1,
+    )
+    payload = client.batch_get_social_metadata(["urn:li:share:123"])
+
+    request = route.calls[0].request
+    assert request.headers.get("X-RestLi-Method") == "BATCH_GET"
+    assert request.headers.get("Linkedin-Version") == "202602"
+    assert request.url.params["ids"] == "List(urn:li:share:123)"
+    assert payload["results"]["urn:li:share:123"]["entity"] == "urn:li:share:123"
+
+
+@respx.mock
+def test_get_member_post_analytics_uses_entity_finder() -> None:
+    route = respx.get("https://api.linkedin.com/rest/memberCreatorPostAnalytics").mock(
+        return_value=httpx.Response(200, json={"elements": [{"totalValue": {"long": 42}}]})
+    )
+
+    client = LinkedInClient(
+        access_token="token",
+        api_version="202312",
+        restli_protocol_version="2.0.0",
+        timeout_seconds=10,
+        max_retries=1,
+    )
+    payload = client.get_member_post_analytics("urn:li:share:123", query_type="REACTION")
+
+    request = route.calls[0].request
+    assert request.headers.get("X-RestLi-Method") == "FINDER"
+    assert request.headers.get("Linkedin-Version") == "202602"
+    assert request.url.params["q"] == "entity"
+    assert request.url.params["entity"] == "(share:urn%3Ali%3Ashare%3A123)"
+    assert request.url.params["queryType"] == "REACTION"
+    assert request.url.params["aggregation"] == "TOTAL"
+    assert payload["elements"][0]["totalValue"]["long"] == 42

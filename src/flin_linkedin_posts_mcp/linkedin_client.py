@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import time
 from typing import Any, Mapping
-from urllib.parse import parse_qsl, urlsplit
+import re
+from urllib.parse import parse_qsl, quote, unquote, urlsplit
 
 import httpx
 
@@ -53,13 +54,25 @@ class LinkedInClient:
         if self._owns_client:
             self._client.close()
 
-    def get_json(self, path: str, params: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        result = self.request_json("GET", path, params=params)
+    def get_json(
+        self,
+        path: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        api_version_override: str | None = None,
+    ) -> dict[str, Any]:
+        result = self.request_json("GET", path, params=params, api_version_override=api_version_override)
         self.last_request_id = result.request_id
         return result.payload
 
-    def get_json_url(self, url: str, params: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        result = self.request_json("GET", url, params=params)
+    def get_json_url(
+        self,
+        url: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        api_version_override: str | None = None,
+    ) -> dict[str, Any]:
+        result = self.request_json("GET", url, params=params, api_version_override=api_version_override)
         self.last_request_id = result.request_id
         return result.payload
 
@@ -76,6 +89,44 @@ class LinkedInClient:
         if start is not None:
             params["start"] = start
         return self.get_json("memberSnapshotData", params=params)
+
+    def get_social_metadata(self, entity_urn: str) -> dict[str, Any]:
+        normalized = normalize_post_urn(entity_urn)
+        encoded = quote(normalized, safe="")
+        return self.get_json(
+            f"socialMetadata/{encoded}",
+            api_version_override=_engagement_api_version(self.api_version),
+        )
+
+    def batch_get_social_metadata(self, entity_urns: list[str]) -> dict[str, Any]:
+        normalized = list(dict.fromkeys(normalize_post_urn(entity_urn) for entity_urn in entity_urns))
+        if not normalized:
+            return {"results": {}, "errors": {}, "statuses": {}}
+        ids = f"List({','.join(normalized)})"
+        return self.get_json(
+            "socialMetadata",
+            params={"ids": ids},
+            api_version_override=_engagement_api_version(self.api_version),
+        )
+
+    def get_member_post_analytics(
+        self,
+        entity_urn: str,
+        *,
+        query_type: str,
+        aggregation: str = "TOTAL",
+    ) -> dict[str, Any]:
+        params = {
+            "q": "entity",
+            "entity": format_member_post_analytics_entity(entity_urn),
+            "queryType": query_type,
+            "aggregation": aggregation,
+        }
+        return self.get_json(
+            "memberCreatorPostAnalytics",
+            params=params,
+            api_version_override=_engagement_api_version(self.api_version),
+        )
 
     def iter_member_snapshot_elements(
         self,
@@ -102,12 +153,13 @@ class LinkedInClient:
         *,
         params: Mapping[str, Any] | None = None,
         json_body: Mapping[str, Any] | None = None,
+        api_version_override: str | None = None,
     ) -> _RequestResult:
         url = self._build_url(path)
         request_params = dict(params) if params else None
         request_headers = {
             "Authorization": f"Bearer {self.access_token}",
-            "Linkedin-Version": self.api_version,
+            "Linkedin-Version": api_version_override or self.api_version,
             "X-Restli-Protocol-Version": self.restli_protocol_version,
         }
         restli_method_override = self._restli_method_override(method=method, path=path, params=params)
@@ -210,6 +262,32 @@ def _safe_json(response: httpx.Response) -> dict[str, Any]:
     except Exception:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+POST_URN_RE = re.compile(r"urn:li:(share|ugcPost):[0-9]+")
+
+
+def normalize_post_urn(value: str) -> str:
+    cleaned = unquote(value.strip())
+    match = POST_URN_RE.search(cleaned)
+    if match is None:
+        raise ValueError("Unable to determine LinkedIn post URN")
+    return match.group(0)
+
+
+def format_member_post_analytics_entity(entity_urn: str) -> str:
+    normalized = normalize_post_urn(entity_urn)
+    if normalized.startswith("urn:li:share:"):
+        prefix = "share"
+    elif normalized.startswith("urn:li:ugcPost:"):
+        prefix = "ugc"
+    else:  # pragma: no cover - kept defensive around future URN variants
+        raise ValueError("Unsupported LinkedIn post URN type")
+    return f"({prefix}:{quote(normalized, safe='')})"
+
+
+def _engagement_api_version(api_version: str) -> str:
+    return api_version if api_version >= "202602" else "202602"
 
 
 def _next_start_from_paging(paging: Any) -> int | None:

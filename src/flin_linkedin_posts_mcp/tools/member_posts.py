@@ -8,10 +8,12 @@ import re
 
 from ..auth import TokenStore, load_valid_token, run_local_oauth_login, token_status_payload
 from ..config import LinkedInPostsSettings
-from ..linkedin_client import LinkedInClient
+from ..errors import LinkedInPostsError
+from ..linkedin_client import LinkedInClient, normalize_post_urn
 from .common import build_entity_response, build_ok_response
 
 MEMBER_SHARE_INFO_DOMAIN = "MEMBER_SHARE_INFO"
+ANALYTICS_METRIC_TYPES = ("IMPRESSION", "MEMBERS_REACHED", "RESHARE", "REACTION", "COMMENT")
 WORD_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'-]{2,}")
 STOPWORDS = {
     "aber", "alle", "auch", "auf", "aus", "bei", "bin", "das", "dass", "dem", "den", "der", "des",
@@ -121,6 +123,7 @@ def analyze_member_posts(
 ) -> dict[str, Any]:
     include_posts = _as_bool(arguments.get("include_posts"), parameter_name="include_posts", default=True)
     top_n = _as_int(arguments.get("top_n"), parameter_name="top_n", default=10, minimum=1, maximum=25)
+    post_limit = _as_optional_int(arguments.get("post_limit"), parameter_name="post_limit", minimum=1, maximum=500)
     published_after = arguments.get("published_after")
     published_after_date = date.fromisoformat(published_after) if published_after is not None else None
 
@@ -152,7 +155,9 @@ def analyze_member_posts(
         "top_terms": [{"value": key, "count": count} for key, count in words.most_common(top_n)],
     }
     if include_posts:
-        enriched["posts"] = posts
+        included_posts = posts[:post_limit] if post_limit is not None else posts
+        enriched["included_post_count"] = len(included_posts)
+        enriched["posts"] = included_posts
     return build_entity_response(
         payload=enriched,
         api_version=settings.api_version,
@@ -227,6 +232,101 @@ def match_drafts_to_member_posts(
     )
 
 
+def get_post_social_metadata(
+    *,
+    client: Any | None,
+    settings: LinkedInPostsSettings,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    entity_urn = _resolve_post_urn(arguments)
+
+    def collect(runtime_client: Any) -> dict[str, Any]:
+        return _normalize_social_metadata_payload(runtime_client.get_social_metadata(entity_urn))
+
+    payload = _with_linkedin_client(client=client, settings=settings, callback=collect)
+    return build_entity_response(
+        payload=payload,
+        api_version=settings.api_version,
+        request_id=getattr(client, "last_request_id", None),
+    )
+
+
+def get_member_post_analytics(
+    *,
+    client: Any | None,
+    settings: LinkedInPostsSettings,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    entity_urn = _resolve_post_urn(arguments)
+    metric_types = _metric_types_from_arguments(arguments.get("metric_types"))
+
+    def collect(runtime_client: Any) -> dict[str, Any]:
+        metrics_by_type: dict[str, int | None] = {}
+        for metric_type in metric_types:
+            payload = runtime_client.get_member_post_analytics(entity_urn, query_type=metric_type)
+            metrics_by_type[metric_type] = _extract_analytics_total(payload)
+        return {
+            "entity_urn": entity_urn,
+            "metrics_by_type": metrics_by_type,
+        }
+
+    payload = _with_linkedin_client(client=client, settings=settings, callback=collect)
+    return build_entity_response(
+        payload=payload,
+        api_version=settings.api_version,
+        request_id=getattr(client, "last_request_id", None),
+    )
+
+
+def enrich_member_posts_with_engagement(
+    *,
+    client: Any | None,
+    settings: LinkedInPostsSettings,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    include_social_metadata = _as_bool(arguments.get("include_social_metadata"), parameter_name="include_social_metadata", default=True)
+    include_post_analytics = _as_bool(arguments.get("include_post_analytics"), parameter_name="include_post_analytics", default=True)
+    limit = _as_int(arguments.get("limit"), parameter_name="limit", default=25, minimum=1, maximum=100)
+    metric_types = _metric_types_from_arguments(arguments.get("analytics_metric_types"))
+
+    listing = list_member_posts(
+        client=client,
+        settings=settings,
+        arguments={
+            "page_size": arguments.get("page_size", 100),
+            "published_after": arguments.get("published_after"),
+            "limit": limit,
+            "include_raw": False,
+        },
+    )
+    posts = [dict(post) for post in listing["data"]]
+
+    for post in posts:
+        post["entity_urn"] = _post_entity_urn(post)
+        post["engagement_errors"] = []
+        post["engagement_available"] = False
+
+    if include_social_metadata:
+        _enrich_posts_with_social_metadata(posts=posts, client=client, settings=settings)
+    if include_post_analytics:
+        _enrich_posts_with_analytics(posts=posts, client=client, settings=settings, metric_types=metric_types)
+
+    for post in posts:
+        post["engagement_available"] = bool(
+            post.get("comments_count") is not None
+            or post.get("reactions_total") is not None
+            or post.get("analytics")
+        )
+
+    return build_ok_response(
+        data=posts,
+        next_after=None,
+        has_next=False,
+        api_version=settings.api_version,
+        request_id=getattr(client, "last_request_id", None),
+    )
+
+
 def _with_linkedin_client(
     *,
     client: Any | None,
@@ -247,6 +347,72 @@ def _with_linkedin_client(
         return callback(runtime_client)
     finally:
         runtime_client.close()
+
+
+def _enrich_posts_with_social_metadata(
+    *,
+    posts: list[dict[str, Any]],
+    client: Any | None,
+    settings: LinkedInPostsSettings,
+) -> None:
+    entity_urns = [entity_urn for post in posts if isinstance((entity_urn := post.get("entity_urn")), str)]
+    if not entity_urns:
+        return
+
+    try:
+        payload = _with_linkedin_client(
+            client=client,
+            settings=settings,
+            callback=lambda runtime_client: runtime_client.batch_get_social_metadata(entity_urns),
+        )
+    except LinkedInPostsError as exc:
+        for post in posts:
+            _add_engagement_error(post, exc)
+        return
+
+    results = payload.get("results", {}) if isinstance(payload, Mapping) else {}
+    for post in posts:
+        entity_urn = post.get("entity_urn")
+        if not isinstance(entity_urn, str):
+            _add_engagement_error(post, ValueError("Unable to determine LinkedIn post URN"))
+            continue
+        item = results.get(entity_urn) if isinstance(results, Mapping) else None
+        if not isinstance(item, Mapping):
+            _add_engagement_error(post, ValueError("No social metadata returned for post"))
+            continue
+        post.update(_normalize_social_metadata_payload(item))
+
+
+def _enrich_posts_with_analytics(
+    *,
+    posts: list[dict[str, Any]],
+    client: Any | None,
+    settings: LinkedInPostsSettings,
+    metric_types: tuple[str, ...],
+) -> None:
+    for post in posts:
+        entity_urn = post.get("entity_urn")
+        if not isinstance(entity_urn, str):
+            _add_engagement_error(post, ValueError("Unable to determine LinkedIn post URN"))
+            continue
+        entity_urn_str = entity_urn
+        metrics: dict[str, int | None] = {}
+        for metric_type in metric_types:
+            try:
+                def load_metric(runtime_client: Any, *, entity_urn: str = entity_urn_str, metric_type: str = metric_type) -> dict[str, Any]:
+                    return runtime_client.get_member_post_analytics(entity_urn, query_type=metric_type)
+
+                payload = _with_linkedin_client(
+                    client=client,
+                    settings=settings,
+                    callback=load_metric,
+                )
+            except LinkedInPostsError as exc:
+                _add_engagement_error(post, exc)
+                break
+            metrics[metric_type] = _extract_analytics_total(payload)
+        if metrics:
+            post["analytics"] = metrics
 
 
 def _posts_from_snapshot_element(element: Mapping[str, Any], *, include_raw: bool) -> list[dict[str, Any]]:
@@ -297,6 +463,16 @@ def _extract_text(data: Mapping[str, Any]) -> str | None:
         if value:
             return value
     return None
+
+
+def _resolve_post_urn(arguments: Mapping[str, Any]) -> str:
+    post_urn = arguments.get("post_urn")
+    post_url = arguments.get("post_url")
+    if isinstance(post_urn, str) and post_urn.strip():
+        return normalize_post_urn(post_urn)
+    if isinstance(post_url, str) and post_url.strip():
+        return normalize_post_urn(post_url)
+    raise ValueError("post_urn or post_url is required")
 
 
 def _first_value(data: Mapping[str, Any], *keys: str) -> Any:
@@ -356,6 +532,34 @@ def _normalize_datetime(value: Any) -> str | None:
     return parsed.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+def _normalize_social_metadata_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    reaction_summaries = payload.get("reactionSummaries")
+    reactions_by_type: dict[str, int] = {}
+    if isinstance(reaction_summaries, Mapping):
+        for reaction_type, summary in reaction_summaries.items():
+            count = None
+            if isinstance(summary, Mapping):
+                count = _coerce_int(summary.get("count"))
+            if isinstance(reaction_type, str) and count is not None:
+                reactions_by_type[reaction_type] = count
+
+    comment_summary = payload.get("commentSummary")
+    comments_count = None
+    top_level_comments_count = None
+    if isinstance(comment_summary, Mapping):
+        comments_count = _coerce_int(comment_summary.get("count"))
+        top_level_comments_count = _coerce_int(comment_summary.get("topLevelCount"))
+
+    return {
+        "entity_urn": _first_str(payload, "entity"),
+        "comments_state": _first_str(payload, "commentsState"),
+        "comments_count": comments_count,
+        "top_level_comments_count": top_level_comments_count,
+        "reactions_total": sum(reactions_by_type.values()),
+        "reactions_by_type": reactions_by_type,
+    }
+
+
 def _extract_media_urls(data: Any) -> list[str]:
     urls: list[str] = []
     if isinstance(data, Mapping):
@@ -389,6 +593,57 @@ def _post_date(post: Mapping[str, Any]) -> date | None:
     if match:
         return date.fromisoformat(match.group(1))
     return None
+
+
+def _post_entity_urn(post: Mapping[str, Any]) -> str | None:
+    for key in ("post_id", "url"):
+        value = post.get(key)
+        if isinstance(value, str) and value.strip():
+            try:
+                return normalize_post_urn(value)
+            except ValueError:
+                continue
+    return None
+
+
+def _extract_analytics_total(payload: Mapping[str, Any]) -> int | None:
+    elements = payload.get("elements")
+    if not isinstance(elements, list) or not elements:
+        return None
+    first = elements[0]
+    if not isinstance(first, Mapping):
+        return None
+    total_value = first.get("totalValue")
+    if isinstance(total_value, Mapping):
+        return _coerce_int(total_value.get("long"))
+    return _coerce_int(first.get("value"))
+
+
+def _metric_types_from_arguments(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ANALYTICS_METRIC_TYPES
+    if not isinstance(value, list) or not value:
+        raise ValueError("metric_types must be a non-empty array of strings")
+    metric_types: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError("metric_types must contain only strings")
+        metric_type = item.strip().upper()
+        if metric_type not in ANALYTICS_METRIC_TYPES:
+            raise ValueError(f"Unsupported metric type: {item}")
+        metric_types.append(metric_type)
+    return tuple(dict.fromkeys(metric_types))
+
+
+def _add_engagement_error(post: dict[str, Any], exc: Exception) -> None:
+    errors = post.setdefault("engagement_errors", [])
+    if not isinstance(errors, list):
+        errors = []
+        post["engagement_errors"] = errors
+    if isinstance(exc, LinkedInPostsError):
+        errors.append({"code": exc.error_code, "message": exc.message})
+    else:
+        errors.append({"code": "validation_error", "message": str(exc)})
 
 
 def _filter_posts(posts: list[dict[str, Any]], *, published_after_date: date | None, limit: int | None) -> list[dict[str, Any]]:

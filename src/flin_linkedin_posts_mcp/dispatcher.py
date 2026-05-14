@@ -7,7 +7,10 @@ from .guards import assert_read_only_tool
 from .linkedin_client import LinkedInClient
 from .tools.member_posts import (
     analyze_member_posts,
+    enrich_member_posts_with_engagement,
     auth_status,
+    get_member_post_analytics,
+    get_post_social_metadata,
     list_member_posts,
     list_snapshot_domains,
     login,
@@ -49,6 +52,21 @@ TOOL_HANDLERS: dict[str, ToolHandler] = {
         arguments=arguments,
     ),
     "match_drafts_to_member_posts": lambda client, settings, arguments: match_drafts_to_member_posts(
+        client=client,
+        settings=settings,
+        arguments=arguments,
+    ),
+    "get_post_social_metadata": lambda client, settings, arguments: get_post_social_metadata(
+        client=client,
+        settings=settings,
+        arguments=arguments,
+    ),
+    "get_member_post_analytics": lambda client, settings, arguments: get_member_post_analytics(
+        client=client,
+        settings=settings,
+        arguments=arguments,
+    ),
+    "enrich_member_posts_with_engagement": lambda client, settings, arguments: enrich_member_posts_with_engagement(
         client=client,
         settings=settings,
         arguments=arguments,
