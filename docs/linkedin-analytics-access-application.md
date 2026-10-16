@@ -11,7 +11,8 @@ r_member_postAnalytics
 ```
 
 LinkedIn documents this scope as part of Community Management API and notes that it is supported in API versions starting from `202506`.
-That initial version is now retired. This project uses `202610`, the latest release as of October 16, 2026.
+That initial Marketing API version is now retired. This project uses `202610` for analytics, the latest release as of October 16, 2026.
+Member Snapshot requests independently use `202312`, the only version supported by that endpoint.
 
 Official references:
 

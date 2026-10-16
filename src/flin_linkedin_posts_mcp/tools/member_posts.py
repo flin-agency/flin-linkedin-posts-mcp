@@ -7,7 +7,7 @@ from typing import Any, Callable, Mapping
 import re
 
 from ..auth import TokenStore, load_valid_token, run_local_oauth_login, token_status_payload
-from ..config import LinkedInPostsSettings
+from ..config import LinkedInPostsSettings, MEMBER_SNAPSHOT_API_VERSION
 from ..errors import LinkedInPostsError
 from ..linkedin_client import LinkedInClient, normalize_post_urn
 from .common import build_entity_response, build_ok_response
@@ -79,7 +79,7 @@ def list_snapshot_domains(
         data=data,
         next_after=None,
         has_next=False,
-        api_version=settings.api_version,
+        api_version=MEMBER_SNAPSHOT_API_VERSION,
         request_id=getattr(client, "last_request_id", None),
     )
 
@@ -110,7 +110,7 @@ def list_member_posts(
         data=posts,
         next_after=None,
         has_next=False,
-        api_version=settings.api_version,
+        api_version=MEMBER_SNAPSHOT_API_VERSION,
         request_id=getattr(client, "last_request_id", None),
     )
 
@@ -160,7 +160,7 @@ def analyze_member_posts(
         enriched["posts"] = included_posts
     return build_entity_response(
         payload=enriched,
-        api_version=settings.api_version,
+        api_version=MEMBER_SNAPSHOT_API_VERSION,
         request_id=getattr(client, "last_request_id", None),
     )
 
@@ -227,7 +227,7 @@ def match_drafts_to_member_posts(
         data=matches,
         next_after=None,
         has_next=False,
-        api_version=settings.api_version,
+        api_version=MEMBER_SNAPSHOT_API_VERSION,
         request_id=getattr(client, "last_request_id", None),
     )
 

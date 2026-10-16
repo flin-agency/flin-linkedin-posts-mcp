@@ -4,8 +4,12 @@ import asyncio
 import json
 from pathlib import Path
 
+import httpx
+import respx
+
 from flin_linkedin_posts_mcp import server
-from flin_linkedin_posts_mcp.config import LinkedInPostsSettings
+from flin_linkedin_posts_mcp.config import LinkedInPostsSettings, load_config
+from flin_linkedin_posts_mcp.linkedin_client import LinkedInClient
 
 
 class _DummyTextContent:
@@ -76,3 +80,28 @@ def test_call_tool_unexpected_exception_does_not_leak_internal_error_details(mon
     assert payload["error"]["message"] == "Unexpected server error"
     assert payload["error"]["details"] == {}
     assert "sensitive backend failure" not in response_chunks[0].text
+
+
+@respx.mock
+def test_snapshot_errors_report_the_requested_snapshot_version(monkeypatch) -> None:
+    monkeypatch.setattr(server, "Server", _DummyServer)
+    monkeypatch.setattr(server, "mcp_types", _DummyMcpTypes)
+    route = respx.get("https://api.linkedin.com/rest/memberSnapshotData").mock(
+        return_value=httpx.Response(403, json={"message": "Permission denied"}),
+    )
+    settings = load_config({"LINKEDIN_API_VERSION": "202610"})
+    with LinkedInClient(
+        access_token="token",
+        api_version=settings.api_version,
+        restli_protocol_version=settings.restli_protocol_version,
+        timeout_seconds=10,
+        max_retries=0,
+    ) as client:
+        test_server = server.create_server(settings=settings, client=client)
+        response_chunks = asyncio.run(test_server.call_tool_handler("list_member_posts", {}))
+
+    payload = json.loads(response_chunks[0].text)
+    assert route.calls[0].request.headers["Linkedin-Version"] == "202312"
+    assert payload["error"]["code"] == "permission_error"
+    assert payload["meta"]["api_version"] == "202312"
+    assert payload["error"]["details"]["api_version"] == "202312"

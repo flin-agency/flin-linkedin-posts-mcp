@@ -57,7 +57,7 @@ def test_get_json_uses_required_linkedin_headers() -> None:
 
 
 @respx.mock
-@pytest.mark.parametrize("api_version", ["202312", "202610"])
+@pytest.mark.parametrize("api_version", ["202312", "202506", "202610"])
 def test_get_member_snapshot_data_uses_criteria_finder(api_version: str) -> None:
     route = respx.get("https://api.linkedin.com/rest/memberSnapshotData").mock(
         return_value=httpx.Response(200, json={"elements": []})
@@ -74,7 +74,7 @@ def test_get_member_snapshot_data_uses_criteria_finder(api_version: str) -> None
 
     request = route.calls[0].request
     assert request.headers.get("Authorization") == "Bearer token"
-    assert request.headers.get("Linkedin-Version") == api_version
+    assert request.headers.get("Linkedin-Version") == "202312"
     assert request.headers.get("X-RestLi-Method") == "FINDER"
     assert request.url.params["q"] == "criteria"
     assert request.url.params["domain"] == "MEMBER_SHARE_INFO"

@@ -52,7 +52,7 @@ def create_server(settings: LinkedInPostsSettings | None = None, client: Any | N
             result = error_response(
                 code=exc.error_code,
                 message=exc.message,
-                api_version=resolved_settings.api_version,
+                api_version=exc.details.get("api_version") or resolved_settings.api_version,
                 request_id=exc.request_id or request_id,
                 details=exc.details,
             )

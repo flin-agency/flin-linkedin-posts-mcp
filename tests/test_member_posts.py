@@ -54,7 +54,7 @@ def _settings(token_file: Path) -> LinkedInPostsSettings:
         oauth_flow="native_pkce",
         redirect_uri=None,
         scopes=("r_dma_portability_self_serve",),
-        api_version="202312",
+        api_version="202610",
         restli_protocol_version="2.0.0",
         timeout_seconds=10,
         max_retries=1,
@@ -131,6 +131,7 @@ def test_list_snapshot_domains_summarizes_snapshot_data_counts(tmp_path: Path) -
         {"domain": "PROFILE", "count": 1},
     ]
     assert client.calls == [(None, 50)]
+    assert result["meta"]["api_version"] == "202312"
 
 
 def test_list_member_posts_normalizes_member_share_info(tmp_path: Path) -> None:
@@ -149,6 +150,7 @@ def test_list_member_posts_normalizes_member_share_info(tmp_path: Path) -> None:
     assert result["data"][0]["comments_count"] == 3
     assert result["data"][0]["impressions_count"] == 456
     assert client.calls == [("MEMBER_SHARE_INFO", 25)]
+    assert result["meta"]["api_version"] == "202312"
 
 
 def test_analyze_member_posts_filters_by_date(tmp_path: Path) -> None:
@@ -163,6 +165,7 @@ def test_analyze_member_posts_filters_by_date(tmp_path: Path) -> None:
     assert result["data"]["post_count"] == 1
     assert result["data"]["posts_with_text"] == 1
     assert result["data"]["top_hashtags"] == [{"value": "ai", "count": 1}]
+    assert result["meta"]["api_version"] == "202312"
 
 
 def test_analyze_member_posts_limits_included_posts_without_changing_summary(tmp_path: Path) -> None:
@@ -211,6 +214,7 @@ def test_match_drafts_to_member_posts_returns_best_matches(tmp_path: Path) -> No
     assert result["data"][0]["matches"][0]["similarity"] == 1.0
     assert result["data"][1]["draft"] == "Analytics post about MCP"
     assert result["data"][1]["matches"][0]["post_id"] == "share-2"
+    assert result["meta"]["api_version"] == "202312"
 
 
 def test_get_post_social_metadata_returns_normalized_counts(tmp_path: Path) -> None:

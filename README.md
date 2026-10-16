@@ -63,7 +63,7 @@ Optional:
 
 - `LINKEDIN_OAUTH_FLOW`: `authorization_code` or `native_pkce`. Defaults to `authorization_code` when `LINKEDIN_CLIENT_SECRET` is set, otherwise `native_pkce`.
 - `LINKEDIN_SCOPES`: defaults to `r_dma_portability_self_serve`
-- `LINKEDIN_API_VERSION`: defaults to `202610`; engagement requests use at least `202610`
+- `LINKEDIN_API_VERSION`: defaults to `202610` for Marketing API requests; engagement requests use at least `202610`. Member Snapshot requests always use `202312`.
 - `LINKEDIN_RESTLI_PROTOCOL_VERSION`: defaults to `2.0.0`
 - `LINKEDIN_TIMEOUT_SECONDS`: defaults to `30`
 - `LINKEDIN_MAX_RETRIES`: defaults to `3`
@@ -75,9 +75,12 @@ Additional LinkedIn access may be required for engagement enrichment:
 - `socialMetadata` access for comment and reaction summaries
 - `r_member_postAnalytics` for member post impressions, reach, reactions, comments, and reshares
 
-The default is LinkedIn's October 2026 API version, the latest release as of October 16, 2026.
-Snapshot requests respect an explicit `LINKEDIN_API_VERSION` override. Engagement requests
-use `202610` when configured with an older version, and preserve newer explicit versions.
+The Marketing API default is LinkedIn's October 2026 version, the latest release as of October 16, 2026.
+The [Member Snapshot API](https://learn.microsoft.com/en-us/linkedin/dma/member-data-portability/shared/member-snapshot-api)
+only supports `202312`. Post listing, analysis, draft matching, and snapshot-domain discovery
+always use that version, regardless of `LINKEDIN_API_VERSION`. The Marketing API version
+calendar does not apply to this endpoint. Engagement requests use `202610` when configured
+with an older version, and preserve newer explicit versions.
 Check the [LinkedIn migration table](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/migrations)
 when upgrading. API version updates do not grant additional OAuth permissions.
 
@@ -177,6 +180,7 @@ flin-linkedin-posts-mcp
 - `LinkedIn token has expired`: run `login` again. If LinkedIn issued a refresh token, the MCP attempts a refresh automatically before requiring login.
 - `Timed out waiting for LinkedIn OAuth callback`: rerun `login` and complete the browser flow within `LINKEDIN_OAUTH_TIMEOUT_SECONDS`.
 - `403 ACCESS_DENIED` on `socialMetadata` or `memberCreatorPostAnalytics`: the LinkedIn app/token does not have the extra engagement permissions needed for those tools.
+- `426 NONEXISTENT_VERSION` on `memberSnapshotData`: upgrade to `0.2.9` or later and restart the MCP host. Version `0.2.8` incorrectly sent the Marketing API version to the snapshot endpoint; the fix pins snapshot requests to `202312`.
 
 ## Notes
 

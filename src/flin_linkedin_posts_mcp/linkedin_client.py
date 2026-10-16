@@ -8,7 +8,7 @@ from urllib.parse import parse_qsl, quote, unquote, urlsplit
 
 import httpx
 
-from .config import DEFAULT_API_VERSION
+from .config import DEFAULT_API_VERSION, MEMBER_SNAPSHOT_API_VERSION
 from .errors import (
     LinkedInAPIError,
     LinkedInPostsError,
@@ -89,7 +89,11 @@ class LinkedInClient:
             params["domain"] = domain
         if start is not None:
             params["start"] = start
-        return self.get_json("memberSnapshotData", params=params)
+        return self.get_json(
+            "memberSnapshotData",
+            params=params,
+            api_version_override=MEMBER_SNAPSHOT_API_VERSION,
+        )
 
     def get_social_metadata(self, entity_urn: str) -> dict[str, Any]:
         normalized = normalize_post_urn(entity_urn)
@@ -222,6 +226,7 @@ class LinkedInClient:
 
         details = {
             "status_code": response.status_code,
+            "api_version": response.request.headers.get("Linkedin-Version"),
             "error": payload,
         }
 

@@ -7,6 +7,7 @@ from typing import Mapping
 
 
 DEFAULT_API_VERSION = "202610"
+MEMBER_SNAPSHOT_API_VERSION = "202312"
 
 
 @dataclass(frozen=True, slots=True)
