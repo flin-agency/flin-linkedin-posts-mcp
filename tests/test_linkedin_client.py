@@ -57,14 +57,15 @@ def test_get_json_uses_required_linkedin_headers() -> None:
 
 
 @respx.mock
-def test_get_member_snapshot_data_uses_criteria_finder() -> None:
+@pytest.mark.parametrize("api_version", ["202312", "202610"])
+def test_get_member_snapshot_data_uses_criteria_finder(api_version: str) -> None:
     route = respx.get("https://api.linkedin.com/rest/memberSnapshotData").mock(
         return_value=httpx.Response(200, json={"elements": []})
     )
 
     client = LinkedInClient(
         access_token="token",
-        api_version="202312",
+        api_version=api_version,
         restli_protocol_version="2.0.0",
         timeout_seconds=10,
         max_retries=1,
@@ -73,7 +74,7 @@ def test_get_member_snapshot_data_uses_criteria_finder() -> None:
 
     request = route.calls[0].request
     assert request.headers.get("Authorization") == "Bearer token"
-    assert request.headers.get("Linkedin-Version") == "202312"
+    assert request.headers.get("Linkedin-Version") == api_version
     assert request.headers.get("X-RestLi-Method") == "FINDER"
     assert request.url.params["q"] == "criteria"
     assert request.url.params["domain"] == "MEMBER_SHARE_INFO"
@@ -175,14 +176,18 @@ def test_format_member_post_analytics_entity_wraps_supported_urns() -> None:
 
 
 @respx.mock
-def test_get_social_metadata_reads_single_entity() -> None:
+@pytest.mark.parametrize(
+    ("api_version", "expected_version"),
+    [("202312", "202610"), ("202602", "202610"), ("202610", "202610"), ("202611", "202611")],
+)
+def test_get_social_metadata_reads_single_entity(api_version: str, expected_version: str) -> None:
     route = respx.get("https://api.linkedin.com/rest/socialMetadata/urn%3Ali%3Ashare%3A123").mock(
         return_value=httpx.Response(200, json={"entity": "urn:li:share:123", "commentSummary": {"count": 4}})
     )
 
     client = LinkedInClient(
         access_token="token",
-        api_version="202312",
+        api_version=api_version,
         restli_protocol_version="2.0.0",
         timeout_seconds=10,
         max_retries=1,
@@ -191,19 +196,23 @@ def test_get_social_metadata_reads_single_entity() -> None:
 
     request = route.calls[0].request
     assert request.headers.get("Authorization") == "Bearer token"
-    assert request.headers.get("Linkedin-Version") == "202602"
+    assert request.headers.get("Linkedin-Version") == expected_version
     assert payload["commentSummary"]["count"] == 4
 
 
 @respx.mock
-def test_batch_get_social_metadata_uses_batch_get_semantics() -> None:
+@pytest.mark.parametrize(
+    ("api_version", "expected_version"),
+    [("202312", "202610"), ("202602", "202610"), ("202610", "202610"), ("202611", "202611")],
+)
+def test_batch_get_social_metadata_uses_batch_get_semantics(api_version: str, expected_version: str) -> None:
     route = respx.get("https://api.linkedin.com/rest/socialMetadata").mock(
         return_value=httpx.Response(200, json={"results": {"urn:li:share:123": {"entity": "urn:li:share:123"}}})
     )
 
     client = LinkedInClient(
         access_token="token",
-        api_version="202312",
+        api_version=api_version,
         restli_protocol_version="2.0.0",
         timeout_seconds=10,
         max_retries=1,
@@ -212,20 +221,24 @@ def test_batch_get_social_metadata_uses_batch_get_semantics() -> None:
 
     request = route.calls[0].request
     assert request.headers.get("X-RestLi-Method") == "BATCH_GET"
-    assert request.headers.get("Linkedin-Version") == "202602"
+    assert request.headers.get("Linkedin-Version") == expected_version
     assert request.url.params["ids"] == "List(urn:li:share:123)"
     assert payload["results"]["urn:li:share:123"]["entity"] == "urn:li:share:123"
 
 
 @respx.mock
-def test_get_member_post_analytics_uses_entity_finder() -> None:
+@pytest.mark.parametrize(
+    ("api_version", "expected_version"),
+    [("202312", "202610"), ("202602", "202610"), ("202610", "202610"), ("202611", "202611")],
+)
+def test_get_member_post_analytics_uses_entity_finder(api_version: str, expected_version: str) -> None:
     route = respx.get("https://api.linkedin.com/rest/memberCreatorPostAnalytics").mock(
-        return_value=httpx.Response(200, json={"elements": [{"totalValue": {"long": 42}}]})
+        return_value=httpx.Response(200, json={"elements": [{"count": 42, "metricType": "REACTION"}]})
     )
 
     client = LinkedInClient(
         access_token="token",
-        api_version="202312",
+        api_version=api_version,
         restli_protocol_version="2.0.0",
         timeout_seconds=10,
         max_retries=1,
@@ -234,9 +247,9 @@ def test_get_member_post_analytics_uses_entity_finder() -> None:
 
     request = route.calls[0].request
     assert request.headers.get("X-RestLi-Method") == "FINDER"
-    assert request.headers.get("Linkedin-Version") == "202602"
+    assert request.headers.get("Linkedin-Version") == expected_version
     assert request.url.params["q"] == "entity"
     assert request.url.params["entity"] == "(share:urn%3Ali%3Ashare%3A123)"
     assert request.url.params["queryType"] == "REACTION"
     assert request.url.params["aggregation"] == "TOTAL"
-    assert payload["elements"][0]["totalValue"]["long"] == 42
+    assert payload["elements"][0]["count"] == 42

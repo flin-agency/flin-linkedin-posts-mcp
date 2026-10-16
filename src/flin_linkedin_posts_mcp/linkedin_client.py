@@ -8,6 +8,7 @@ from urllib.parse import parse_qsl, quote, unquote, urlsplit
 
 import httpx
 
+from .config import DEFAULT_API_VERSION
 from .errors import (
     LinkedInAPIError,
     LinkedInPostsError,
@@ -287,7 +288,7 @@ def format_member_post_analytics_entity(entity_urn: str) -> str:
 
 
 def _engagement_api_version(api_version: str) -> str:
-    return api_version if api_version >= "202602" else "202602"
+    return max(api_version, DEFAULT_API_VERSION)
 
 
 def _next_start_from_paging(paging: Any) -> int | None:

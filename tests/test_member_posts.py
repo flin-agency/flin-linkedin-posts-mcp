@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from flin_linkedin_posts_mcp.auth import TokenRecord, TokenStore
 from flin_linkedin_posts_mcp.config import LinkedInPostsSettings
 from flin_linkedin_posts_mcp.tools.member_posts import (
@@ -258,6 +260,26 @@ def test_get_member_post_analytics_returns_metrics_by_type(tmp_path: Path) -> No
     assert result["data"]["metrics_by_type"] == {"REACTION": 11, "COMMENT": 4}
 
 
+@pytest.mark.parametrize("count", [0, 11])
+def test_get_member_post_analytics_reads_documented_count(tmp_path: Path, count: int) -> None:
+    client = DummyClient(
+        _snapshot_elements(),
+        analytics_payloads={
+            ("urn:li:share:123", "REACTION"): {
+                "elements": [{"count": count, "metricType": "REACTION"}],
+            },
+        },
+    )
+
+    result = get_member_post_analytics(
+        client=client,
+        settings=_settings(tmp_path / "tokens.json"),
+        arguments={"post_urn": "urn:li:share:123", "metric_types": ["REACTION"]},
+    )
+
+    assert result["data"]["metrics_by_type"] == {"REACTION": count}
+
+
 def test_enrich_member_posts_with_engagement_merges_metadata_and_analytics(tmp_path: Path) -> None:
     client = DummyClient(
         _snapshot_elements(),
@@ -274,10 +296,10 @@ def test_enrich_member_posts_with_engagement_merges_metadata_and_analytics(tmp_p
             },
         },
         analytics_payloads={
-            ("urn:li:share:1", "IMPRESSION"): {"elements": [{"totalValue": {"long": 101}}]},
-            ("urn:li:share:1", "REACTION"): {"elements": [{"totalValue": {"long": 5}}]},
-            ("urn:li:share:2", "IMPRESSION"): {"elements": [{"totalValue": {"long": 51}}]},
-            ("urn:li:share:2", "REACTION"): {"elements": [{"totalValue": {"long": 1}}]},
+            ("urn:li:share:1", "IMPRESSION"): {"elements": [{"count": 101, "metricType": "IMPRESSION"}]},
+            ("urn:li:share:1", "REACTION"): {"elements": [{"count": 5, "metricType": "REACTION"}]},
+            ("urn:li:share:2", "IMPRESSION"): {"elements": [{"count": 51, "metricType": "IMPRESSION"}]},
+            ("urn:li:share:2", "REACTION"): {"elements": [{"count": 1, "metricType": "REACTION"}]},
         },
     )
 

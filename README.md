@@ -63,7 +63,7 @@ Optional:
 
 - `LINKEDIN_OAUTH_FLOW`: `authorization_code` or `native_pkce`. Defaults to `authorization_code` when `LINKEDIN_CLIENT_SECRET` is set, otherwise `native_pkce`.
 - `LINKEDIN_SCOPES`: defaults to `r_dma_portability_self_serve`
-- `LINKEDIN_API_VERSION`: defaults to `202312`
+- `LINKEDIN_API_VERSION`: defaults to `202610`; engagement requests use at least `202610`
 - `LINKEDIN_RESTLI_PROTOCOL_VERSION`: defaults to `2.0.0`
 - `LINKEDIN_TIMEOUT_SECONDS`: defaults to `30`
 - `LINKEDIN_MAX_RETRIES`: defaults to `3`
@@ -74,6 +74,16 @@ Additional LinkedIn access may be required for engagement enrichment:
 
 - `socialMetadata` access for comment and reaction summaries
 - `r_member_postAnalytics` for member post impressions, reach, reactions, comments, and reshares
+
+The default is LinkedIn's October 2026 API version, the latest release as of October 16, 2026.
+Snapshot requests respect an explicit `LINKEDIN_API_VERSION` override. Engagement requests
+use `202610` when configured with an older version, and preserve newer explicit versions.
+Check the [LinkedIn migration table](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/migrations)
+when upgrading. API version updates do not grant additional OAuth permissions.
+
+See `docs/linkedin-analytics-access-application.md` for Community Management API application steps,
+request copy, privacy-policy notes, and the MCP configuration to use after LinkedIn approves
+`r_member_postAnalytics`.
 
 The MCP intentionally does not require `LINKEDIN_ACCESS_TOKEN` anymore. Tokens are created through the `login` tool.
 
@@ -101,7 +111,7 @@ For a published package:
         "LINKEDIN_CLIENT_SECRET": "<YOUR_LINKEDIN_CLIENT_SECRET>",
         "LINKEDIN_REDIRECT_URI": "http://127.0.0.1:63141/callback",
         "LINKEDIN_SCOPES": "r_dma_portability_self_serve",
-        "LINKEDIN_API_VERSION": "202312"
+        "LINKEDIN_API_VERSION": "202610"
       }
     }
   }
@@ -122,7 +132,7 @@ For local development from this repository:
         "LINKEDIN_CLIENT_SECRET": "<YOUR_LINKEDIN_CLIENT_SECRET>",
         "LINKEDIN_REDIRECT_URI": "http://127.0.0.1:63141/callback",
         "LINKEDIN_SCOPES": "r_dma_portability_self_serve",
-        "LINKEDIN_API_VERSION": "202312"
+        "LINKEDIN_API_VERSION": "202610"
       }
     }
   }

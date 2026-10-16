@@ -13,7 +13,7 @@ def test_load_config_does_not_require_static_access_token() -> None:
     assert settings.oauth_flow == "native_pkce"
     assert settings.redirect_uri is None
     assert settings.scopes == ("r_dma_portability_self_serve",)
-    assert settings.api_version == "202312"
+    assert settings.api_version == "202610"
     assert settings.restli_protocol_version == "2.0.0"
     assert settings.timeout_seconds == 30.0
     assert settings.max_retries == 3
@@ -28,7 +28,7 @@ def test_load_config_reads_oauth_settings() -> None:
             "LINKEDIN_OAUTH_FLOW": "authorization_code",
             "LINKEDIN_REDIRECT_URI": "http://127.0.0.1:63141/callback",
             "LINKEDIN_SCOPES": "profile r_dma_portability_self_serve",
-            "LINKEDIN_API_VERSION": "202401",
+            "LINKEDIN_API_VERSION": "202609",
             "LINKEDIN_RESTLI_PROTOCOL_VERSION": "2.0.0",
             "LINKEDIN_TIMEOUT_SECONDS": "12",
             "LINKEDIN_MAX_RETRIES": "2",
@@ -42,7 +42,7 @@ def test_load_config_reads_oauth_settings() -> None:
     assert settings.oauth_flow == "authorization_code"
     assert settings.redirect_uri == "http://127.0.0.1:63141/callback"
     assert settings.scopes == ("profile", "r_dma_portability_self_serve")
-    assert settings.api_version == "202401"
+    assert settings.api_version == "202609"
     assert settings.timeout_seconds == 12.0
     assert settings.max_retries == 2
     assert settings.oauth_timeout_seconds == 180.0

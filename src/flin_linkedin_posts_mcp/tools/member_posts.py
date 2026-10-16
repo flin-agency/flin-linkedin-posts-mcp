@@ -613,6 +613,8 @@ def _extract_analytics_total(payload: Mapping[str, Any]) -> int | None:
     first = elements[0]
     if not isinstance(first, Mapping):
         return None
+    if "count" in first:
+        return _coerce_int(first["count"])
     total_value = first.get("totalValue")
     if isinstance(total_value, Mapping):
         return _coerce_int(total_value.get("long"))
