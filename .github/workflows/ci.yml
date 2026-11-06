@@ -13,27 +13,29 @@ env:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
+        os: [ubuntu-latest, macos-latest]
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: pyproject.toml
+          cache-dependency-path: uv.lock
 
       - name: Install package with dev extras
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]" build twine
+          python -m pip install uv==0.10.11
+          uv sync --locked --extra dev --python "${{ matrix.python-version }}"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Lint
         run: ruff check .
@@ -45,7 +47,21 @@ jobs:
         run: pytest -q
 
       - name: Build package
-        run: python -m build
+        run: uv build --out-dir dist/release
 
       - name: Verify distributions
-        run: twine check dist/*
+        run: uvx --from twine==6.2.0 twine check dist/release/*
+
+      - name: Audit locked runtime dependencies
+        run: |
+          uv export --locked --no-dev --no-emit-project --format requirements-txt -o /tmp/runtime-requirements.txt > /dev/null
+          uvx --from pip-audit==2.10.1 pip-audit -r /tmp/runtime-requirements.txt --no-deps --disable-pip
+
+      - name: Static security checks
+        run: uvx --from bandit==1.9.4 bandit -r src -q
+
+      - name: Build and smoke-test desktop bundle
+        run: |
+          npx --yes @anthropic-ai/mcpb@2.1.2 validate manifest.json
+          python scripts/build_mcpb.py
+          python scripts/smoke_mcpb.py dist/desktop/*.mcpb

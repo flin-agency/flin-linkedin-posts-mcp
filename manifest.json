@@ -1,0 +1,51 @@
+{
+  "manifest_version": "0.4",
+  "name": "flin-linkedin-posts-mcp",
+  "display_name": "flin LinkedIn Posts",
+  "version": "0.3.0",
+  "description": "Read and analyze your own LinkedIn posts with local browser login.",
+  "author": {"name": "flin.agency", "url": "https://github.com/flin-agency"},
+  "repository": {"type": "git", "url": "https://github.com/flin-agency/flin-linkedin-posts-mcp"},
+  "homepage": "https://github.com/flin-agency/flin-linkedin-posts-mcp",
+  "documentation": "https://github.com/flin-agency/flin-linkedin-posts-mcp/blob/main/docs/claude-desktop-macos.md",
+  "support": "https://github.com/flin-agency/flin-linkedin-posts-mcp/issues",
+  "privacy_policies": ["https://www.linkedin.com/legal/privacy-policy"],
+  "license": "MIT",
+  "server": {
+    "type": "uv",
+    "entry_point": "desktop/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "--locked", "--no-dev", "--directory", "${__dirname}", "desktop/server.py"],
+      "env": {
+        "LINKEDIN_CLIENT_ID": "${user_config.client_id}",
+        "LINKEDIN_CLIENT_SECRET": "${user_config.client_secret}",
+        "LINKEDIN_REDIRECT_URI": "${user_config.redirect_uri}",
+        "LINKEDIN_SCOPES": "${user_config.scopes}"
+      }
+    }
+  },
+  "compatibility": {"platforms": ["darwin"], "runtimes": {"python": ">=3.11 <4"}},
+  "user_config": {
+    "client_id": {
+      "type": "string", "title": "LinkedIn Client ID",
+      "description": "Client ID of your LinkedIn Developer app with Member Data Portability access.",
+      "required": true
+    },
+    "client_secret": {
+      "type": "string", "title": "LinkedIn Client Secret",
+      "description": "Required for regular OAuth. Leave empty only if LinkedIn enabled Native PKCE for your app.",
+      "sensitive": true, "required": false, "default": ""
+    },
+    "redirect_uri": {
+      "type": "string", "title": "OAuth callback URL",
+      "description": "Register this exact URL in your LinkedIn Developer app's Auth tab.",
+      "default": "http://127.0.0.1:63141/callback", "required": true
+    },
+    "scopes": {
+      "type": "string", "title": "LinkedIn permissions",
+      "description": "Space-separated permissions approved for your app. Add r_member_postAnalytics only if approved.",
+      "default": "r_dma_portability_self_serve", "required": true
+    }
+  }
+}

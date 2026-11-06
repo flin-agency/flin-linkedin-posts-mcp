@@ -9,7 +9,7 @@ def test_mcp_dependency_excludes_breaking_v2() -> None:
     dependencies = pyproject["project"]["dependencies"]
     mcp_requirement = next(item for item in dependencies if item.startswith("mcp"))
 
-    assert mcp_requirement == "mcp>=1.0.0,<2"
+    assert mcp_requirement == "mcp>=1.30.0,<2"
 
 
 def test_ruff_dependency_excludes_breaking_v016() -> None:

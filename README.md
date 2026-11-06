@@ -99,16 +99,24 @@ The MCP intentionally does not require `LINKEDIN_ACCESS_TOKEN` anymore. Tokens a
 5. Set `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, and `LINKEDIN_REDIRECT_URI` to the same redirect URL.
 6. For native PKCE only, ask LinkedIn to enable Native PKCE OAuth for the app, omit `LINKEDIN_CLIENT_SECRET`, and configure loopback redirect URIs as LinkedIn requires.
 
-## Claude Desktop Configuration
+## Claude Desktop on macOS: installable extension
 
-For a published package:
+Download the `.mcpb` file from [GitHub Releases](https://github.com/flin-agency/flin-linkedin-posts-mcp/releases/latest) and install it in Claude Desktop's Extensions settings. The extension prompts for your LinkedIn app credentials; the client secret is marked sensitive. A current Claude Desktop with MCPB 0.4 / UV support manages Python and the locked dependencies on first start.
+
+[Schritt-für-Schritt-Anleitung auf Deutsch](docs/claude-desktop-macos.md) · [Security review](docs/security-review-2026-11-06.md) · [Security model](SECURITY.md)
+
+The LinkedIn API approval described above is still required. Releases include `SHA256SUMS`; the bundle is unsigned.
+
+## Claude Desktop Configuration (manual alternative)
+
+For the hardened wheel attached to the GitHub release (requires `uv`):
 
 ```json
 {
   "mcpServers": {
     "flin-linkedin-posts-mcp": {
       "command": "uvx",
-      "args": ["--refresh", "flin-linkedin-posts-mcp@latest"],
+      "args": ["--from", "https://github.com/flin-agency/flin-linkedin-posts-mcp/releases/download/v0.3.0/flin_linkedin_posts_mcp-0.3.0-py3-none-any.whl", "flin-linkedin-posts-mcp"],
       "env": {
         "LINKEDIN_CLIENT_ID": "<YOUR_LINKEDIN_CLIENT_ID>",
         "LINKEDIN_CLIENT_SECRET": "<YOUR_LINKEDIN_CLIENT_SECRET>",
@@ -160,6 +168,8 @@ ruff check .
 ```
 
 ## Packaging
+
+Build the desktop bundle with `python scripts/build_mcpb.py` after `uv lock --check`. Only explicitly allowlisted files enter `dist/desktop/`; the archive includes `uv.lock` and a SHA-256 checksum.
 
 ```bash
 python3 -m build

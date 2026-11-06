@@ -174,10 +174,14 @@ def match_drafts_to_member_posts(
     drafts = arguments.get("drafts")
     if not isinstance(drafts, list) or not drafts:
         raise ValueError("drafts must be a non-empty array of strings")
+    if len(drafts) > 50:
+        raise ValueError("drafts must contain at most 50 strings")
     normalized_drafts: list[str] = []
     for draft in drafts:
         if not isinstance(draft, str) or not draft.strip():
             raise ValueError("drafts must contain only non-empty strings")
+        if len(draft) > 10000:
+            raise ValueError("Each draft must contain at most 10000 characters")
         normalized_drafts.append(draft.strip())
 
     max_matches_per_draft = _as_int(
