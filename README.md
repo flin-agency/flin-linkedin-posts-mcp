@@ -101,7 +101,7 @@ The MCP intentionally does not require `LINKEDIN_ACCESS_TOKEN` anymore. Tokens a
 
 ## Claude Desktop on macOS: installable extension
 
-Download the `.mcpb` file from [GitHub Releases](https://github.com/flin-agency/flin-linkedin-posts-mcp/releases/latest) and install it in Claude Desktop's Extensions settings. The extension prompts for your LinkedIn app credentials; the client secret is marked sensitive. A current Claude Desktop with MCPB 0.4 / UV support manages Python and the locked dependencies on first start.
+Download the `.mcpb` file from [GitHub Releases](https://github.com/flin-agency/flin-linkedin-posts-mcp/releases/latest) and install it in Claude Desktop's Extensions settings. The extension prompts for your LinkedIn app credentials; the client secret is marked sensitive. A current Claude Desktop with MCPB 0.4 / UV support manages Python. The extension fetches the latest stable server from PyPI at every server start; restarting Claude applies new server releases without reinstalling the extension.
 
 [Schritt-für-Schritt-Anleitung auf Deutsch](docs/claude-desktop-macos.md) · [Security review](docs/security-review-2026-11-06.md) · [Security model](SECURITY.md)
 
@@ -109,14 +109,14 @@ The LinkedIn API approval described above is still required. Releases include `S
 
 ## Claude Desktop Configuration (manual alternative)
 
-For the hardened wheel attached to the GitHub release (requires `uv`):
+For automatic stable PyPI updates at each start (requires `uv`):
 
 ```json
 {
   "mcpServers": {
     "flin-linkedin-posts-mcp": {
       "command": "uvx",
-      "args": ["--from", "https://github.com/flin-agency/flin-linkedin-posts-mcp/releases/download/v0.3.0/flin_linkedin_posts_mcp-0.3.0-py3-none-any.whl", "flin-linkedin-posts-mcp"],
+      "args": ["--refresh", "--prerelease", "disallow", "flin-linkedin-posts-mcp@latest"],
       "env": {
         "LINKEDIN_CLIENT_ID": "<YOUR_LINKEDIN_CLIENT_ID>",
         "LINKEDIN_CLIENT_SECRET": "<YOUR_LINKEDIN_CLIENT_SECRET>",
@@ -169,7 +169,7 @@ ruff check .
 
 ## Packaging
 
-Build the desktop bundle with `python scripts/build_mcpb.py` after `uv lock --check`. Only explicitly allowlisted files enter `dist/desktop/`; the archive includes `uv.lock` and a SHA-256 checksum.
+Build the desktop bundle with `python scripts/build_mcpb.py` after `uv lock --check`. Only the launcher, minimal dependency-free project metadata, and allowlisted documentation enter `dist/desktop/`; a SHA-256 checksum accompanies the archive. The runtime server comes from PyPI and is intentionally not fixed by the repository lockfile. See [release requirements](docs/releasing.md): every version release must publish both PyPI distributions and a new desktop bundle through the Release workflow.
 
 ```bash
 python3 -m build

@@ -18,6 +18,7 @@ import webbrowser
 
 import httpx
 
+from . import __version__
 from .security import redact
 from .config import LinkedInPostsSettings
 from .errors import LinkedInAuthError, LinkedInValidationError
@@ -390,6 +391,7 @@ def load_valid_token(settings: LinkedInPostsSettings) -> TokenRecord:
 
 def token_status_payload(settings: LinkedInPostsSettings, record: TokenRecord | None) -> dict[str, Any]:
     return {
+        "server_version": __version__,
         "authenticated": record is not None and not record.is_expired(),
         "expired": record.is_expired() if record else None,
         "expires_at": record.expires_at if record else None,
