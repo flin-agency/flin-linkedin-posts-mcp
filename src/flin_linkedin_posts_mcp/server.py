@@ -21,8 +21,8 @@ try:  # Optional at import time for local testing without the dependency install
     from mcp import types as mcp_types
     from mcp.server import Server
     from mcp.server.stdio import stdio_server
-except Exception:  # pragma: no cover - exercised only when dependency is unavailable.
-    pass
+except ImportError:  # pragma: no cover - optional dependency in isolated import tests.
+    logger.debug("MCP SDK is not installed")
 
 
 def create_server(settings: LinkedInPostsSettings | None = None, client: Any | None = None) -> Any:
@@ -71,7 +71,7 @@ def create_server(settings: LinkedInPostsSettings | None = None, client: Any | N
                 request_id=request_id,
             )
         except Exception:  # pragma: no cover - defensive fallback
-            logger.exception("Unexpected server error while handling MCP tool call")
+            logger.error("Unexpected server error while handling MCP tool call")
             result = error_response(
                 code="linkedin_api_error",
                 message="Unexpected server error",

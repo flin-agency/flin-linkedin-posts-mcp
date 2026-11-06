@@ -79,7 +79,7 @@ def tool_specs() -> list[ToolSpec]:
                 "properties": {
                     "drafts": {
                         "type": "array",
-                        "items": {"type": "string"},
+                        "items": {"type": "string", "maxLength": 10000},
                         "minItems": 1,
                         "maxItems": 50,
                     },

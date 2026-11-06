@@ -20,19 +20,20 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: pyproject.toml
+          cache-dependency-path: uv.lock
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]" build twine
+          python -m pip install uv==0.10.11
+          uv sync --locked --extra dev --python 3.12
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Verify tag matches package version
         run: |
@@ -57,18 +58,32 @@ jobs:
           pytest -q
 
       - name: Build distributions
-        run: python -m build
+        run: uv build --out-dir dist/release
 
       - name: Verify distributions
-        run: twine check dist/*
+        run: uvx --from twine==7.0.0 twine check dist/release/*
+
+      - name: Audit locked runtime dependencies
+        run: |
+          uv export --locked --no-dev --no-emit-project --format requirements-txt -o /tmp/runtime-requirements.txt > /dev/null
+          uvx --from pip-audit==2.10.1 pip-audit -r /tmp/runtime-requirements.txt --no-deps --disable-pip
+          uvx --from bandit==1.9.4 bandit -r src -q
+
+      - name: Build and smoke-test desktop bundle
+        run: |
+          npx --yes @anthropic-ai/mcpb@2.1.2 validate manifest.json
+          python scripts/build_mcpb.py
+          python scripts/smoke_mcpb.py dist/desktop/*.mcpb
 
       - name: Publish to PyPI (Trusted Publishing)
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
+        with:
+          packages-dir: dist/release/
 
       - name: Create GitHub Release with artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" dist/* \
+          gh release create "${GITHUB_REF_NAME}" dist/release/* dist/desktop/* \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes

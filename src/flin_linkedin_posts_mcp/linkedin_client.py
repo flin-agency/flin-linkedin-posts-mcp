@@ -8,6 +8,7 @@ from urllib.parse import parse_qsl, quote, unquote, urlsplit
 
 import httpx
 
+from .security import redact
 from .config import DEFAULT_API_VERSION, MEMBER_SNAPSHOT_API_VERSION
 from .errors import (
     LinkedInAPIError,
@@ -140,7 +141,7 @@ class LinkedInClient:
         page_size: int = 100,
     ):
         start: int | None = None
-        while True:
+        for _ in range(1000):
             payload = self.get_member_snapshot_data(domain=domain, count=page_size, start=start)
             elements = payload.get("elements", []) if isinstance(payload, Mapping) else []
             for element in elements:
@@ -148,8 +149,11 @@ class LinkedInClient:
                     yield element
             next_start = _next_start_from_paging(payload.get("paging") if isinstance(payload, Mapping) else None)
             if next_start is None:
-                break
+                return
+            if next_start <= (start or 0):
+                raise LinkedInAPIError("LinkedIn snapshot pagination did not advance")
             start = next_start
+        raise LinkedInAPIError("LinkedIn snapshot pagination exceeded the 1000-page safety limit")
 
     def request_json(
         self,
@@ -160,6 +164,8 @@ class LinkedInClient:
         json_body: Mapping[str, Any] | None = None,
         api_version_override: str | None = None,
     ) -> _RequestResult:
+        if method.upper() != "GET":
+            raise LinkedInValidationError("Only read-only GET requests are allowed")
         url = self._build_url(path)
         request_params = dict(params) if params else None
         request_headers = {
@@ -179,9 +185,12 @@ class LinkedInClient:
                 params=request_params,
                 headers=request_headers,
                 json=dict(json_body or {}) if json_body is not None else None,
+                follow_redirects=False,
             )
             request_id = self._request_id_from_response(response)
 
+            if 300 <= response.status_code < 400:
+                raise LinkedInAPIError("LinkedIn API redirects are not allowed")
             if response.status_code < 400:
                 payload = response.json() if response.content else {}
                 return _RequestResult(payload=payload if isinstance(payload, dict) else {}, request_id=request_id)
@@ -195,7 +204,15 @@ class LinkedInClient:
 
     @staticmethod
     def _build_url(path: str) -> str:
-        if path.startswith(("https://", "http://")):
+        parsed = urlsplit(path)
+        if parsed.scheme or parsed.netloc:
+            if (
+                parsed.scheme != "https"
+                or parsed.netloc != "api.linkedin.com"
+                or not parsed.path.startswith(("/rest/", "/v2/"))
+                or parsed.fragment
+            ):
+                raise LinkedInValidationError("Only HTTPS LinkedIn API URLs are allowed")
             return path
         clean_path = path.lstrip("/")
         return f"https://api.linkedin.com/rest/{clean_path}"
@@ -217,11 +234,11 @@ class LinkedInClient:
         return min(2.0**attempt * 0.5, 8.0)
 
     def _error_from_response(self, response: httpx.Response, *, request_id: str | None) -> LinkedInPostsError:
-        payload = _safe_json(response)
+        payload = redact(_safe_json(response), self.access_token)
         message = (
             str(payload.get("message"))
             if isinstance(payload.get("message"), str)
-            else response.text or "LinkedIn API request failed"
+            else redact(response.text, self.access_token) or "LinkedIn API request failed"
         )
 
         details = {

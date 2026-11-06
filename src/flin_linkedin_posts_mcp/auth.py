@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import secrets
+import tempfile
 import threading
 import time
 from typing import Any, Callable, Mapping
@@ -17,12 +18,14 @@ import webbrowser
 
 import httpx
 
+from .security import redact
 from .config import LinkedInPostsSettings
 from .errors import LinkedInAuthError, LinkedInValidationError
 
 NATIVE_PKCE_AUTHORIZATION_ENDPOINT = "https://www.linkedin.com/oauth/native-pkce/authorization"
 AUTHORIZATION_CODE_ENDPOINT = "https://www.linkedin.com/oauth/v2/authorization"
-TOKEN_ENDPOINT = "https://www.linkedin.com/oauth/v2/accessToken"
+# Public endpoint, not a credential.
+TOKEN_ENDPOINT = "https://www.linkedin.com/oauth/v2/accessToken"  # nosec B105
 SUPPORTED_OAUTH_FLOWS = {"native_pkce", "authorization_code"}
 
 
@@ -82,6 +85,8 @@ class TokenStore:
         self.path = Path(path)
 
     def load(self) -> TokenRecord | None:
+        if self.path.is_symlink():
+            raise LinkedInAuthError("LinkedIn token file must not be a symbolic link")
         if not self.path.exists():
             return None
         try:
@@ -93,10 +98,19 @@ class TokenStore:
         return TokenRecord.from_json(payload)
 
     def save(self, record: TokenRecord) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(record.to_json(), indent=2, sort_keys=True))
-        if os.name != "nt":
-            os.chmod(self.path, 0o600)
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        # mkstemp applies 0600 before any secrets are written. Atomic replacement
+        # also avoids following a token-file symlink or leaving a partial token.
+        fd, temporary = tempfile.mkstemp(prefix=".tokens-", dir=self.path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(record.to_json(), stream, indent=2, sort_keys=True)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self.path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
 
     def clear(self) -> None:
         try:
@@ -175,12 +189,13 @@ class LinkedInOAuthClient:
             TOKEN_ENDPOINT,
             data=data,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
+            follow_redirects=False,
         )
-        if response.status_code >= 400:
+        if response.status_code >= 300:
             raise LinkedInAuthError(
-                _oauth_error_message(response),
+                redact(_oauth_error_message(response), *data.values()),
                 status_code=response.status_code,
-                details={"status_code": response.status_code, "error": _safe_json(response)},
+                details={"status_code": response.status_code, "error": redact(_safe_json(response), *data.values())},
             )
         return _token_record_from_response(response.json())
 
@@ -202,12 +217,13 @@ class LinkedInOAuthClient:
             TOKEN_ENDPOINT,
             data=data,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
+            follow_redirects=False,
         )
-        if response.status_code >= 400:
+        if response.status_code >= 300:
             raise LinkedInAuthError(
-                _oauth_error_message(response),
+                redact(_oauth_error_message(response), *data.values()),
                 status_code=response.status_code,
-                details={"status_code": response.status_code, "error": _safe_json(response)},
+                details={"status_code": response.status_code, "error": redact(_safe_json(response), *data.values())},
             )
         return _token_record_from_response(response.json())
 
@@ -260,10 +276,11 @@ def run_local_oauth_login(
                 return
 
             returned_state = _first_query_value(query, "state")
-            if returned_state != state:
-                callback_result["error"] = "OAuth state mismatch"
+            if not returned_state or not secrets.compare_digest(returned_state, state):
                 self._write_page(401, "LinkedIn login failed. You can close this window.")
-                callback_event.set()
+                return
+            if callback_event.is_set():
+                self._write_page(409, "LinkedIn login callback already received.")
                 return
 
             error = _first_query_value(query, "error")
@@ -302,6 +319,9 @@ def run_local_oauth_login(
             self.send_response(status_code)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
             self.end_headers()
             self.wfile.write(body)
 
@@ -312,6 +332,7 @@ def run_local_oauth_login(
         server = ThreadingHTTPServer(("127.0.0.1", 0), OAuthCallbackHandler)
         redirect_uri = f"http://127.0.0.1:{server.server_port}{callback_path}"
     oauth_client = LinkedInOAuthClient(settings)
+    thread: threading.Thread | None = None
     try:
         url = oauth_client.authorization_url(
             redirect_uri=redirect_uri,
@@ -333,7 +354,9 @@ def run_local_oauth_login(
         TokenStore(settings.token_file).save(record)
         return record
     finally:
-        server.shutdown()
+        if thread is not None:
+            server.shutdown()
+            thread.join(timeout=2)
         server.server_close()
         oauth_client.close()
 
@@ -424,8 +447,10 @@ def _local_redirect_from_uri(uri: str) -> LocalRedirect:
         port = parsed.port
     except ValueError as exc:
         raise LinkedInValidationError("LINKEDIN_REDIRECT_URI must include a valid port") from exc
-    if port is None:
-        raise LinkedInValidationError("LINKEDIN_REDIRECT_URI must include a port")
+    if port is None or port == 0:
+        raise LinkedInValidationError("LINKEDIN_REDIRECT_URI must include a non-zero port")
+    if parsed.username is not None or parsed.password is not None:
+        raise LinkedInValidationError("LINKEDIN_REDIRECT_URI must not include credentials")
     if not parsed.path or parsed.path == "/":
         raise LinkedInValidationError("LINKEDIN_REDIRECT_URI must include a callback path")
     if parsed.query or parsed.fragment:
