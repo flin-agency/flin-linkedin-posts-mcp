@@ -1,9 +1,14 @@
 name: Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*"
+
+concurrency:
+  group: package-release
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -37,6 +42,7 @@ jobs:
 
       - name: Verify tag matches package version
         run: |
+          test "$GITHUB_REF_TYPE" = "tag" || { echo "Run releases from a version tag."; exit 1; }
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           PROJECT_VERSION="$(python - <<'PY'
           import tomllib
@@ -54,7 +60,7 @@ jobs:
       - name: Verify quality gates
         run: |
           ruff check .
-          mypy src
+          mypy src desktop
           pytest -q
 
       - name: Build distributions
@@ -67,7 +73,7 @@ jobs:
         run: |
           uv export --locked --no-dev --no-emit-project --format requirements-txt -o /tmp/runtime-requirements.txt > /dev/null
           uvx --from pip-audit==2.10.1 pip-audit -r /tmp/runtime-requirements.txt --no-deps --disable-pip
-          uvx --from bandit==1.9.4 bandit -r src -q
+          uvx --from bandit==1.9.4 bandit -r src desktop -q
 
       - name: Build and smoke-test desktop bundle
         run: |
@@ -79,11 +85,20 @@ jobs:
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
         with:
           packages-dir: dist/release/
+          skip-existing: true
 
-      - name: Create GitHub Release with artifacts
+      - name: Verify published PyPI distributions and live updater
+        run: |
+          python scripts/verify_pypi.py
+          python scripts/smoke_mcpb.py dist/desktop/*.mcpb "${GITHUB_REF_NAME#v}"
+
+      - name: Create or update GitHub Release with artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" dist/release/* dist/desktop/* \
-            --title "${GITHUB_REF_NAME}" \
-            --generate-notes
+          if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" dist/release/* dist/desktop/* --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" dist/release/* dist/desktop/* \
+              --verify-tag --title "${GITHUB_REF_NAME}" --generate-notes
+          fi

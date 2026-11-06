@@ -13,13 +13,15 @@ def test_bundle_is_reproducible_and_excludes_local_files(tmp_path):
     assert first.read_bytes() == second.read_bytes()
     with zipfile.ZipFile(first) as archive:
         names = archive.namelist()
-        assert "uv.lock" in names
+        assert "uv.lock" not in names
+        assert not any(name.startswith("src/") for name in names)
         assert "desktop/server.py" in names
         assert all(not any(part in {".env", ".git", ".venv", "__pycache__", "tokens.json"} for part in Path(name).parts) for name in names)
-        assert all(name.startswith("src/") or name in {
+        assert all(name in {
             "manifest.json", "pyproject.toml", "uv.lock", "README.md", "LICENSE", "SECURITY.md",
-            "desktop/server.py", "docs/claude-desktop-macos.md", "docs/security-review-2026-11-06.md",
+            "desktop/server.py", "docs/claude-desktop-macos.md", "docs/security-review-2026-11-06.md", "docs/releasing.md",
         } for name in names)
         manifest = json.loads(archive.read("manifest.json"))
         assert manifest["user_config"]["client_secret"]["sensitive"] is True
-        assert "--locked" in manifest["server"]["mcp_config"]["args"]
+        assert "--no-project" in manifest["server"]["mcp_config"]["args"]
+        assert "--refresh" in archive.read("desktop/server.py").decode()
