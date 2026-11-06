@@ -7,7 +7,7 @@
   "author": {"name": "flin.agency", "url": "https://github.com/flin-agency"},
   "repository": {"type": "git", "url": "https://github.com/flin-agency/flin-linkedin-posts-mcp"},
   "homepage": "https://github.com/flin-agency/flin-linkedin-posts-mcp",
-  "documentation": "https://github.com/flin-agency/flin-linkedin-posts-mcp/blob/main/docs/claude-desktop-macos.md",
+  "documentation": "https://github.com/flin-agency/flin-linkedin-posts-mcp/blob/v0.3.0/docs/claude-desktop-macos.md",
   "support": "https://github.com/flin-agency/flin-linkedin-posts-mcp/issues",
   "privacy_policies": ["https://www.linkedin.com/legal/privacy-policy"],
   "license": "MIT",
