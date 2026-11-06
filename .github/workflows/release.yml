@@ -61,7 +61,7 @@ jobs:
         run: uv build --out-dir dist/release
 
       - name: Verify distributions
-        run: uvx --from twine==6.2.0 twine check dist/release/*
+        run: uvx --from twine==7.0.0 twine check dist/release/*
 
       - name: Audit locked runtime dependencies
         run: |
