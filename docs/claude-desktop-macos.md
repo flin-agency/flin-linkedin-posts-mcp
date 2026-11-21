@@ -28,3 +28,20 @@ Zum Release gehört `SHA256SUMS`. Optional im Download-Ordner mit `shasum -a 256
 Der Release-Ablauf veröffentlicht bei jedem neuen Versionstag sowohl auf PyPI als auch ein aktuelles `.mcpb` für Neuinstallationen. Änderungen an Einstellungsfeldern oder am Starter selbst erfordern bei direkt verteilten Erweiterungen einen erneuten Import; vollständige automatische Erweiterungsupdates bietet Claude nur über sein offizielles Verzeichnis. Der laufende Server und dessen Funktionen werden unabhängig davon automatisch über PyPI aktualisiert.
 
 Format und Installation folgen der [offiziellen MCPB-Spezifikation](https://github.com/modelcontextprotocol/mcpb/blob/main/MANIFEST.md) und [Claude Desktop Hilfe](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop).
+
+## Zweite Verbindung für Post-Analytics (ab 0.3.1)
+
+Version 0.3.1 unterstützt zwei separate LinkedIn-Apps. Pro App benötigst du eine eigene Client ID und ein eigenes Client Secret. Die erste App liefert Post-Texte, die zweite mit Community Management die persönlichen Kennzahlen. Beide Verbindungen verwenden eigene lokal gespeicherte Tokens.
+
+Nach der Community-Management-Freigabe die zweite Client ID, das zweite Client Secret und die Callback-URL in die optionalen Analytics-Felder eintragen. Beispiel: `http://127.0.0.1:63142/callback`, exakt so auch in der zweiten LinkedIn-App registrieren. Das zusätzliche Feld **Analytics app: permissions** kann für Post-Kennzahlen leer bleiben (Standard: `r_member_postAnalytics`). Für Follower-Verläufe `r_member_postAnalytics r_member_profileAnalytics` eintragen, sofern beide Berechtigungen freigeschaltet sind. Nach Änderungen an Berechtigungen erneut bei Analytics anmelden. Bis zur Einrichtung alle Analytics-Felder leer lassen. Die bisherigen Zugangsdaten bleiben in den bisherigen Feldern.
+
+1. Das MCPB für 0.3.1 einmal importieren, damit Claude die neuen Einstellungsfelder erhält.
+2. Den laufenden MCP-Server neu starten.
+3. `auth_status` aufrufen: `connections` zeigt Portability und Analytics getrennt.
+4. `login` mit `{"connection":"analytics"}` ausführen. Dasselbe LinkedIn-Konto wie bei Portability verwenden.
+5. `get_member_analytics` mit `metric_types: ["IMPRESSION"]` prüfen; hierfür ist keine Post-ID nötig. Danach `get_member_post_analytics` mit einer bestätigten Post-URN ausprobieren. Beide unterstützen `start_date`, `end_date` (exklusiv) und Tagesverläufe über `aggregation: "DAILY"`.
+6. Danach `enrich_member_posts_with_engagement` mit `limit: 5` ausprobieren. Mit dem zusätzlichen Profil-Scope liefert `get_member_follower_statistics` auch Follower-Zahlen und Datumsverläufe.
+
+Die zweite Token-Datei liegt standardmässig unter `~/.flin-linkedin-posts-mcp/tokens.analytics.json`. `logout` mit `{"connection":"analytics"}` entfernt nur diese Datei. Tokens sind lokal an die jeweilige Client ID gebunden; ein Wechsel der App erfordert einen neuen Login.
+
+Post-Texte kommen weiterhin aus der ersten Verbindung, Kennzahlen aus der zweiten. Der Analytics-Scope allein erlaubt kein Auslesen persönlicher Post-Inhalte über die normale Posts API. Nicht auflösbare Post-IDs und fehlende Berechtigungen werden pro Post ausgewiesen. Die automatischen stabilen PyPI-Updates bei jedem Serverstart bleiben erhalten.

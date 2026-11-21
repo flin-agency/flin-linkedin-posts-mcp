@@ -29,7 +29,10 @@ async def smoke(bundle: Path, expected_version: str | None = None) -> None:
             async with ClientSession(reader, writer) as session:
                 await session.initialize()
                 tools = await session.list_tools()
-                assert len(tools.tools) == 10
+                names = {tool.name for tool in tools.tools}
+                assert {"auth_status", "get_member_post_analytics"} <= names
+                if expected_version is not None:
+                    assert {"get_member_analytics", "get_member_follower_statistics"} <= names
                 result = await session.call_tool("auth_status", {})
                 assert not result.isError
                 payload = json.loads(result.content[0].text)
@@ -37,7 +40,7 @@ async def smoke(bundle: Path, expected_version: str | None = None) -> None:
                 assert payload["data"]["client_secret_configured"] is False
                 if expected_version is not None:
                     assert payload["data"]["server_version"] == expected_version, payload["data"]
-                print("Packaged MCP initialized; 10 tools found; unauthenticated auth_status passed.")
+                print(f"Packaged MCP initialized; {len(names)} tools found; unauthenticated auth_status passed.")
 
 
 if __name__ == "__main__":

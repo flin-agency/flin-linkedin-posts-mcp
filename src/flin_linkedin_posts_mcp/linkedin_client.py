@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import time
 from typing import Any, Mapping
 import re
-from urllib.parse import parse_qsl, quote, unquote, urlsplit
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit
 
 import httpx
 
@@ -26,6 +26,20 @@ class _RequestResult:
     request_id: str | None
 
 
+@dataclass
+class RequestBudget:
+    limit: int
+    used: int = 0
+    rate_limited: bool = False
+
+    def consume(self) -> None:
+        if self.rate_limited:
+            raise LinkedInRateLimitError("LinkedIn rate limit reached earlier in this invocation; remaining metrics were not requested")
+        if self.used >= self.limit:
+            raise LinkedInRateLimitError("Per-call engagement request budget exhausted; remaining metrics were not requested")
+        self.used += 1
+
+
 class LinkedInClient:
     def __init__(
         self,
@@ -36,6 +50,7 @@ class LinkedInClient:
         timeout_seconds: float,
         max_retries: int,
         client: httpx.Client | None = None,
+        request_budget: RequestBudget | None = None,
     ) -> None:
         self.access_token = access_token
         self.api_version = api_version
@@ -45,6 +60,7 @@ class LinkedInClient:
         self._client = client or httpx.Client(timeout=self.timeout_seconds)
         self._owns_client = client is None
         self.last_request_id: str | None = None
+        self.request_budget = request_budget
 
     def __enter__(self) -> "LinkedInClient":
         return self
@@ -117,20 +133,31 @@ class LinkedInClient:
 
     def get_member_post_analytics(
         self,
-        entity_urn: str,
+        entity_urn: str | None = None,
         *,
         query_type: str,
         aggregation: str = "TOTAL",
+        date_range: str | None = None,
     ) -> dict[str, Any]:
-        params = {
-            "q": "entity",
-            "entity": format_member_post_analytics_entity(entity_urn),
-            "queryType": query_type,
-            "aggregation": aggregation,
-        }
+        # Rest.li requires an encoded URN inside an unescaped union. Passing
+        # that pre-encoded value through params would encode '%' a second time.
+        finder = (
+            f"q=entity&entity={format_member_post_analytics_entity(entity_urn)}"
+            if entity_urn is not None else "q=me"
+        )
+        params = {"queryType": query_type, "aggregation": aggregation}
+        if date_range is not None:
+            params["dateRange"] = date_range
+        query = urlencode(params, safe="():,")
         return self.get_json(
-            "memberCreatorPostAnalytics",
-            params=params,
+            f"memberCreatorPostAnalytics?{finder}&{query}",
+            api_version_override=_engagement_api_version(self.api_version),
+        )
+
+    def get_member_follower_statistics(self, *, date_range: str | None = None) -> dict[str, Any]:
+        params = {"q": "dateRange", "dateRange": date_range} if date_range else {"q": "me"}
+        return self.get_json(
+            "memberFollowersCount?" + urlencode(params, safe="():,"),
             api_version_override=_engagement_api_version(self.api_version),
         )
 
@@ -179,6 +206,8 @@ class LinkedInClient:
 
         attempts = 0
         while True:
+            if self.request_budget is not None:
+                self.request_budget.consume()
             response = self._client.request(
                 method,
                 url,
@@ -196,7 +225,11 @@ class LinkedInClient:
                 return _RequestResult(payload=payload if isinstance(payload, dict) else {}, request_id=request_id)
 
             error = self._error_from_response(response, request_id=request_id)
-            if self._should_retry(response.status_code) and attempts < self.max_retries:
+            if response.status_code == 429 and self.request_budget is not None:
+                self.request_budget.rate_limited = True
+            if self._should_retry(response.status_code) and attempts < self.max_retries and not (
+                response.status_code == 429 and self.request_budget is not None
+            ):
                 time.sleep(self._backoff_seconds(attempts))
                 attempts += 1
                 continue

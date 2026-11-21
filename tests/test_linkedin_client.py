@@ -249,7 +249,9 @@ def test_get_member_post_analytics_uses_entity_finder(api_version: str, expected
     assert request.headers.get("X-RestLi-Method") == "FINDER"
     assert request.headers.get("Linkedin-Version") == expected_version
     assert request.url.params["q"] == "entity"
-    assert request.url.params["entity"] == "(share:urn%3Ali%3Ashare%3A123)"
+    assert request.url.params["entity"] == "(share:urn:li:share:123)"
+    assert b"entity=(share:urn%3Ali%3Ashare%3A123)" in request.url.query
+    assert b"%253A" not in request.url.query
     assert request.url.params["queryType"] == "REACTION"
     assert request.url.params["aggregation"] == "TOTAL"
     assert payload["elements"][0]["count"] == 42

@@ -11,6 +11,8 @@ READ_ONLY_TOOL_NAMES = {
     "match_drafts_to_member_posts",
     "get_post_social_metadata",
     "get_member_post_analytics",
+    "get_member_analytics",
+    "get_member_follower_statistics",
     "enrich_member_posts_with_engagement",
 }
 

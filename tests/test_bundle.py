@@ -23,5 +23,11 @@ def test_bundle_is_reproducible_and_excludes_local_files(tmp_path):
         } for name in names)
         manifest = json.loads(archive.read("manifest.json"))
         assert manifest["user_config"]["client_secret"]["sensitive"] is True
+        assert manifest["user_config"]["analytics_client_secret"]["sensitive"] is True
+        assert manifest["user_config"]["analytics_client_id"]["required"] is False
+        assert manifest["user_config"]["analytics_redirect_uri"]["default"] == ""
+        assert manifest["user_config"]["analytics_scopes"]["default"] == ""
+        assert manifest["server"]["mcp_config"]["env"]["LINKEDIN_ANALYTICS_SCOPES"] == "${user_config.analytics_scopes}"
+        assert manifest["server"]["mcp_config"]["env"]["LINKEDIN_ANALYTICS_CLIENT_ID"] == "${user_config.analytics_client_id}"
         assert "--no-project" in manifest["server"]["mcp_config"]["args"]
         assert "--refresh" in archive.read("desktop/server.py").decode()

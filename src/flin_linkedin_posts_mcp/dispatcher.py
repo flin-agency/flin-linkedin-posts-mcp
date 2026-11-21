@@ -10,6 +10,8 @@ from .tools.member_posts import (
     enrich_member_posts_with_engagement,
     auth_status,
     get_member_post_analytics,
+    get_member_analytics,
+    get_member_follower_statistics,
     get_post_social_metadata,
     list_member_posts,
     list_snapshot_domains,
@@ -21,6 +23,12 @@ from .tools.member_posts import (
 ToolHandler = Callable[[LinkedInClient | None, LinkedInPostsSettings, dict[str, Any]], dict[str, Any]]
 
 TOOL_HANDLERS: dict[str, ToolHandler] = {
+    "get_member_analytics": lambda client, settings, arguments: get_member_analytics(
+        client=client, settings=settings, arguments=arguments,
+    ),
+    "get_member_follower_statistics": lambda client, settings, arguments: get_member_follower_statistics(
+        client=client, settings=settings, arguments=arguments,
+    ),
     "auth_status": lambda client, settings, arguments: auth_status(
         client=client,
         settings=settings,

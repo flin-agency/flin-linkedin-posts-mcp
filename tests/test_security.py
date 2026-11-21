@@ -118,7 +118,7 @@ def test_invalid_callback_does_not_cancel_valid_login(tmp_path):
         assert response.headers["referrer-policy"] == "no-referrer"
         return True
     with patch.object(LinkedInOAuthClient, "exchange_code", return_value=record) as exchange:
-        assert run_local_oauth_login(settings, open_browser=browser) == record
+        assert run_local_oauth_login(settings, open_browser=browser) == replace(record, client_id="id")
     assert exchange.call_args.kwargs["code"] == "valid"
 
 

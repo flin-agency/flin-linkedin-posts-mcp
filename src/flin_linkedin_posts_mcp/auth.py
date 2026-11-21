@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import base64
 import hashlib
 from html import escape
@@ -38,6 +38,7 @@ class TokenRecord:
     scope: str | None = None
     refresh_token: str | None = None
     refresh_expires_at: float | None = None
+    client_id: str | None = None
 
     def is_expired(self, *, now: float | None = None, skew_seconds: float = 60.0) -> bool:
         current = time.time() if now is None else now
@@ -57,6 +58,7 @@ class TokenRecord:
             "scope": self.scope,
             "refresh_token": self.refresh_token,
             "refresh_expires_at": self.refresh_expires_at,
+            "client_id": self.client_id,
         }
 
     @classmethod
@@ -78,6 +80,7 @@ class TokenRecord:
             scope=scope if isinstance(scope, str) else None,
             refresh_token=refresh_token if isinstance(refresh_token, str) and refresh_token else None,
             refresh_expires_at=float(refresh_expires_at) if isinstance(refresh_expires_at, int | float) else None,
+            client_id=payload.get("client_id") if isinstance(payload.get("client_id"), str) else None,
         )
 
 
@@ -352,6 +355,7 @@ def run_local_oauth_login(
             redirect_uri=redirect_uri,
             code_verifier=code_verifier,
         )
+        record = replace(record, client_id=settings.client_id)
         TokenStore(settings.token_file).save(record)
         return record
     finally:
@@ -366,7 +370,12 @@ def load_valid_token(settings: LinkedInPostsSettings) -> TokenRecord:
     store = TokenStore(settings.token_file)
     record = store.load()
     if record is None:
-        raise LinkedInAuthError("LinkedIn is not authenticated. Run the login tool first.")
+        raise LinkedInAuthError(f"LinkedIn {settings.connection_name} is not authenticated. Run login with connection='{settings.connection_name}'.")
+    if not token_matches_client(settings, record):
+        raise LinkedInAuthError(
+            f"Stored token does not match the {settings.connection_name} app. "
+            f"Run login with connection='{settings.connection_name}'."
+        )
     if not record.is_expired():
         return record
     if record.refresh_token and not record.refresh_is_expired():
@@ -384,15 +393,27 @@ def load_valid_token(settings: LinkedInPostsSettings) -> TokenRecord:
                 refresh_token=record.refresh_token,
                 refresh_expires_at=record.refresh_expires_at,
             )
+        refreshed = replace(refreshed, client_id=settings.client_id, scope=refreshed.scope or record.scope)
         store.save(refreshed)
         return refreshed
-    raise LinkedInAuthError("LinkedIn token has expired. Run the login tool again.")
+    raise LinkedInAuthError(f"LinkedIn token has expired. Run login with connection='{settings.connection_name}' again.")
+
+
+def token_matches_client(settings: LinkedInPostsSettings, record: TokenRecord) -> bool:
+    # Legacy portability tokens predate client binding. New analytics tokens
+    # must be bound so copied credentials cannot cross app boundaries.
+    if record.client_id is None:
+        return settings.connection_name == "portability"
+    return record.client_id == settings.client_id
 
 
 def token_status_payload(settings: LinkedInPostsSettings, record: TokenRecord | None) -> dict[str, Any]:
     return {
         "server_version": __version__,
-        "authenticated": record is not None and not record.is_expired(),
+        "authenticated": record is not None and token_matches_client(settings, record) and not record.is_expired(),
+        "client_matches": token_matches_client(settings, record) if record else None,
+        "connection": settings.connection_name,
+        "requested_scopes": list(settings.scopes),
         "expired": record.is_expired() if record else None,
         "expires_at": record.expires_at if record else None,
         "scope": record.scope if record else None,

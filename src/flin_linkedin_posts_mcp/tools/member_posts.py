@@ -7,13 +7,17 @@ from typing import Any, Callable, Mapping
 import re
 
 from ..auth import TokenStore, load_valid_token, run_local_oauth_login, token_status_payload
-from ..config import LinkedInPostsSettings, MEMBER_SNAPSHOT_API_VERSION
-from ..errors import LinkedInPostsError
-from ..linkedin_client import LinkedInClient, normalize_post_urn
+from ..config import DEFAULT_API_VERSION, LinkedInPostsSettings, MEMBER_ANALYTICS_SCOPES, MEMBER_SNAPSHOT_API_VERSION
+from ..errors import LinkedInAuthError, LinkedInPermissionError, LinkedInPostsError, LinkedInRateLimitError
+from ..linkedin_client import LinkedInClient, RequestBudget, normalize_post_urn
 from .common import build_entity_response, build_ok_response
 
 MEMBER_SHARE_INFO_DOMAIN = "MEMBER_SHARE_INFO"
-ANALYTICS_METRIC_TYPES = ("IMPRESSION", "MEMBERS_REACHED", "RESHARE", "REACTION", "COMMENT")
+DEFAULT_ANALYTICS_METRIC_TYPES = ("IMPRESSION", "MEMBERS_REACHED", "RESHARE", "REACTION", "COMMENT")
+ANALYTICS_METRIC_TYPES = DEFAULT_ANALYTICS_METRIC_TYPES + (
+    "POST_SAVE", "POST_SEND", "LINK_CLICKS", "PREMIUM_CTA_CLICKS",
+    "FOLLOWER_GAINED_FROM_CONTENT", "PROFILE_VIEW_FROM_CONTENT",
+)
 WORD_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'-]{2,}")
 STOPWORDS = {
     "aber", "alle", "auch", "auf", "aus", "bei", "bin", "das", "dass", "dem", "den", "der", "des",
@@ -24,19 +28,32 @@ STOPWORDS = {
 
 
 def auth_status(*, client: Any | None, settings: LinkedInPostsSettings, arguments: dict[str, Any]) -> dict[str, Any]:
-    if arguments:
-        raise ValueError("auth_status does not accept arguments")
-    record = TokenStore(settings.token_file).load()
+    connection = _auth_connection(arguments)
+    selected = settings.for_connection(connection)
+    record = TokenStore(selected.token_file).load()
+    payload = token_status_payload(selected, record)
+    if not arguments:
+        connections = {"portability": dict(payload)}
+        if settings.analytics is not None or MEMBER_ANALYTICS_SCOPES.intersection(settings.scopes):
+            analytics = settings.for_connection("analytics")
+            try:
+                connections["analytics"] = token_status_payload(analytics, TokenStore(analytics.token_file).load())
+                connections["analytics"]["configured"] = True
+                connections["analytics"]["shared_with_portability"] = settings.analytics is None
+            except LinkedInPostsError as exc:
+                connections["analytics"] = {"configured": True, "authenticated": False, "error": exc.message}
+        else:
+            connections["analytics"] = {"configured": False, "authenticated": False}
+        payload["connections"] = connections
     return build_entity_response(
-        payload=token_status_payload(settings, record),
+        payload=payload,
         api_version=settings.api_version,
         request_id=getattr(client, "last_request_id", None),
     )
 
 
 def login(*, client: Any | None, settings: LinkedInPostsSettings, arguments: dict[str, Any]) -> dict[str, Any]:
-    if arguments:
-        raise ValueError("login does not accept arguments")
+    settings = settings.for_connection(_auth_connection(arguments))
     record = run_local_oauth_login(settings)
     return build_entity_response(
         payload=token_status_payload(settings, record),
@@ -46,14 +63,22 @@ def login(*, client: Any | None, settings: LinkedInPostsSettings, arguments: dic
 
 
 def logout(*, client: Any | None, settings: LinkedInPostsSettings, arguments: dict[str, Any]) -> dict[str, Any]:
-    if arguments:
-        raise ValueError("logout does not accept arguments")
+    settings = settings.for_connection(_auth_connection(arguments))
     TokenStore(settings.token_file).clear()
     return build_entity_response(
         payload=token_status_payload(settings, None),
         api_version=settings.api_version,
         request_id=getattr(client, "last_request_id", None),
     )
+
+
+def _auth_connection(arguments: dict[str, Any]) -> str:
+    if set(arguments) - {"connection"}:
+        raise ValueError("Only the connection argument is supported")
+    connection = arguments.get("connection", "portability")
+    if connection not in ("portability", "analytics"):
+        raise ValueError("connection must be portability or analytics")
+    return connection
 
 
 def list_snapshot_domains(
@@ -247,10 +272,10 @@ def get_post_social_metadata(
     def collect(runtime_client: Any) -> dict[str, Any]:
         return _normalize_social_metadata_payload(runtime_client.get_social_metadata(entity_urn))
 
-    payload = _with_linkedin_client(client=client, settings=settings, callback=collect)
+    payload = _with_linkedin_client(client=client, settings=settings, callback=collect, connection="analytics")
     return build_entity_response(
         payload=payload,
-        api_version=settings.api_version,
+        api_version=max(settings.api_version, DEFAULT_API_VERSION),
         request_id=getattr(client, "last_request_id", None),
     )
 
@@ -262,23 +287,117 @@ def get_member_post_analytics(
     arguments: dict[str, Any],
 ) -> dict[str, Any]:
     entity_urn = _resolve_post_urn(arguments)
-    metric_types = _metric_types_from_arguments(arguments.get("metric_types"))
+    return _member_analytics(client=client, settings=settings, arguments=arguments, entity_urn=entity_urn)
+
+
+def get_member_analytics(
+    *, client: Any | None, settings: LinkedInPostsSettings, arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """Ask LinkedIn for account-wide metrics, including deduplicated reach."""
+    return _member_analytics(client=client, settings=settings, arguments=arguments, entity_urn=None)
+
+
+def _analytics_date_range(arguments: Mapping[str, Any]) -> str | None:
+    values: dict[str, date] = {}
+    for key in ("start_date", "end_date"):
+        value = arguments.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+            raise ValueError(f"{key} must be a date in YYYY-MM-DD format")
+        values[key] = date.fromisoformat(value)
+    if len(values) == 2 and values["start_date"] >= values["end_date"]:
+        raise ValueError("start_date must be before end_date (exclusive)")
+    if not values:
+        return None
+    return "(" + ",".join(
+        f"{key.removesuffix('_date')}:(year:{value.year},month:{value.month},day:{value.day})"
+        for key, value in values.items()
+    ) + ")"
+
+
+def _member_analytics(
+    *, client: Any | None, settings: LinkedInPostsSettings, arguments: dict[str, Any],
+    entity_urn: str | None,
+) -> dict[str, Any]:
+    date_range = _analytics_date_range(arguments)
+    aggregation = arguments.get("aggregation", "TOTAL")
+    if aggregation not in ("TOTAL", "DAILY"):
+        raise ValueError("aggregation must be TOTAL or DAILY")
+    unsupported_daily = {
+        "MEMBERS_REACHED", "LINK_CLICKS", "FOLLOWER_GAINED_FROM_CONTENT", "PROFILE_VIEW_FROM_CONTENT",
+    }
+    if entity_urn is not None:
+        unsupported_daily.add("IMPRESSION")
+    metric_selection = arguments.get("metric_types")
+    if metric_selection is None and aggregation == "DAILY":
+        metric_selection = [metric for metric in DEFAULT_ANALYTICS_METRIC_TYPES if metric not in unsupported_daily]
+    metric_types = _metric_types_from_arguments(metric_selection)
+    if aggregation == "DAILY" and unsupported_daily.intersection(metric_types):
+        raise ValueError("DAILY is not supported for: " + ", ".join(sorted(unsupported_daily.intersection(metric_types))))
+    budget = RequestBudget(50)
+    request_id = None
 
     def collect(runtime_client: Any) -> dict[str, Any]:
+        nonlocal request_id
         metrics_by_type: dict[str, int | None] = {}
+        series_by_type: dict[str, Any] = {}
         for metric_type in metric_types:
-            payload = runtime_client.get_member_post_analytics(entity_urn, query_type=metric_type)
-            metrics_by_type[metric_type] = _extract_analytics_total(payload)
-        return {
-            "entity_urn": entity_urn,
-            "metrics_by_type": metrics_by_type,
+            options: dict[str, Any] = {"query_type": metric_type, "aggregation": aggregation}
+            if date_range is not None:
+                options["date_range"] = date_range
+            payload = runtime_client.get_member_post_analytics(entity_urn, **options)
+            request_id = getattr(runtime_client, "last_request_id", None)
+            if aggregation == "TOTAL":
+                metrics_by_type[metric_type] = _extract_analytics_total(payload)
+            else:
+                # Preserve dates and gaps; daily unique reach must never be summed.
+                series_by_type[metric_type] = payload.get("elements", [])
+        result: dict[str, Any] = {
+            "scope": "post" if entity_urn is not None else "member",
+            "aggregation": aggregation,
+            "start_date": arguments.get("start_date"),
+            "end_date": arguments.get("end_date"),
         }
+        if entity_urn is not None:
+            result["entity_urn"] = entity_urn
+        result["metrics_by_type" if aggregation == "TOTAL" else "series_by_type"] = (
+            metrics_by_type if aggregation == "TOTAL" else series_by_type
+        )
+        return result
 
-    payload = _with_linkedin_client(client=client, settings=settings, callback=collect)
+    payload = _with_linkedin_client(
+        client=client, settings=settings, callback=collect, connection="analytics",
+        required_scope="r_member_postAnalytics", budget=budget,
+    )
     return build_entity_response(
         payload=payload,
-        api_version=settings.api_version,
-        request_id=getattr(client, "last_request_id", None),
+        api_version=max(settings.api_version, DEFAULT_API_VERSION),
+        request_id=request_id,
+    )
+
+
+def get_member_follower_statistics(
+    *, client: Any | None, settings: LinkedInPostsSettings, arguments: dict[str, Any],
+) -> dict[str, Any]:
+    date_range = _analytics_date_range(arguments)
+
+    def collect(runtime_client: Any) -> dict[str, Any]:
+        payload = runtime_client.get_member_follower_statistics(date_range=date_range)
+        return build_entity_response(
+            payload={
+                "period": "date_range" if date_range else "lifetime",
+                "start_date": arguments.get("start_date"),
+                "end_date": arguments.get("end_date"),
+                "statistics": payload,
+            },
+            api_version=max(settings.api_version, DEFAULT_API_VERSION),
+            request_id=getattr(runtime_client, "last_request_id", None),
+        )
+
+    return _with_linkedin_client(
+        client=client, settings=settings, callback=collect, connection="analytics",
+        required_scope="r_member_profileAnalytics", budget=RequestBudget(4),
     )
 
 
@@ -288,10 +407,19 @@ def enrich_member_posts_with_engagement(
     settings: LinkedInPostsSettings,
     arguments: dict[str, Any],
 ) -> dict[str, Any]:
-    include_social_metadata = _as_bool(arguments.get("include_social_metadata"), parameter_name="include_social_metadata", default=True)
+    include_social_metadata = _as_bool(arguments.get("include_social_metadata"), parameter_name="include_social_metadata", default=False)
     include_post_analytics = _as_bool(arguments.get("include_post_analytics"), parameter_name="include_post_analytics", default=True)
-    limit = _as_int(arguments.get("limit"), parameter_name="limit", default=25, minimum=1, maximum=100)
+    limit = _as_int(arguments.get("limit"), parameter_name="limit", default=5, minimum=1, maximum=100)
     metric_types = _metric_types_from_arguments(arguments.get("analytics_metric_types"))
+    budget = RequestBudget(_as_int(
+        arguments.get("max_api_calls"), parameter_name="max_api_calls", default=50, minimum=1, maximum=100,
+    ))
+    expected_calls = limit * (int(include_social_metadata) + (len(metric_types) if include_post_analytics else 0))
+    if expected_calls > budget.limit:
+        raise ValueError(
+            f"Requested enrichment may need {expected_calls} API calls; max_api_calls is {budget.limit}. "
+            "Reduce limit or the metric selection. This is a per-call budget, not a daily quota."
+        )
 
     listing = list_member_posts(
         client=client,
@@ -311,22 +439,22 @@ def enrich_member_posts_with_engagement(
         post["engagement_available"] = False
 
     if include_social_metadata:
-        _enrich_posts_with_social_metadata(posts=posts, client=client, settings=settings)
+        _enrich_posts_with_social_metadata(posts=posts, client=client, settings=settings, budget=budget)
     if include_post_analytics:
-        _enrich_posts_with_analytics(posts=posts, client=client, settings=settings, metric_types=metric_types)
+        _enrich_posts_with_analytics(posts=posts, client=client, settings=settings, metric_types=metric_types, budget=budget)
 
     for post in posts:
         post["engagement_available"] = bool(
             post.get("comments_count") is not None
             or post.get("reactions_total") is not None
-            or post.get("analytics")
+            or any(value is not None for value in post.get("analytics", {}).values())
         )
 
     return build_ok_response(
         data=posts,
         next_after=None,
         has_next=False,
-        api_version=settings.api_version,
+        api_version=max(settings.api_version, DEFAULT_API_VERSION),
         request_id=getattr(client, "last_request_id", None),
     )
 
@@ -336,16 +464,34 @@ def _with_linkedin_client(
     client: Any | None,
     settings: LinkedInPostsSettings,
     callback: Callable[[Any], Any],
+    connection: str = "portability",
+    required_scope: str | None = None,
+    budget: RequestBudget | None = None,
 ) -> Any:
     if client is not None:
         return callback(client)
+    # Explicit social permissions on the primary app remain usable for legacy
+    # installations; analytics never falls back when a second app is configured.
+    if connection == "analytics" and required_scope is None and settings.analytics is None:
+        selected = settings
+    else:
+        selected = settings.for_connection(connection)
+    settings = selected
     token = load_valid_token(settings)
+    if required_scope and token.scope is not None and required_scope not in token.scope.replace(",", " ").split():
+        raise LinkedInPermissionError(
+            f"The {connection} token lacks {required_scope}. Add it to "
+            "LINKEDIN_ANALYTICS_SCOPES (or LINKEDIN_SCOPES for a shared app), "
+            "check the app's approved permissions and rerun login "
+            f"with connection='{connection}'."
+        )
     runtime_client = LinkedInClient(
         access_token=token.access_token,
         api_version=settings.api_version,
         restli_protocol_version=settings.restli_protocol_version,
         timeout_seconds=settings.timeout_seconds,
         max_retries=settings.max_retries,
+        request_budget=budget,
     )
     try:
         return callback(runtime_client)
@@ -358,33 +504,13 @@ def _enrich_posts_with_social_metadata(
     posts: list[dict[str, Any]],
     client: Any | None,
     settings: LinkedInPostsSettings,
+    budget: RequestBudget,
 ) -> None:
-    entity_urns = [entity_urn for post in posts if isinstance((entity_urn := post.get("entity_urn")), str)]
-    if not entity_urns:
-        return
+    def fetch(runtime_client: Any, post: dict[str, Any]) -> None:
+        payload = runtime_client.get_social_metadata(post["entity_urn"])
+        post.update({key: value for key, value in _normalize_social_metadata_payload(payload).items() if value is not None})
 
-    try:
-        payload = _with_linkedin_client(
-            client=client,
-            settings=settings,
-            callback=lambda runtime_client: runtime_client.batch_get_social_metadata(entity_urns),
-        )
-    except LinkedInPostsError as exc:
-        for post in posts:
-            _add_engagement_error(post, exc)
-        return
-
-    results = payload.get("results", {}) if isinstance(payload, Mapping) else {}
-    for post in posts:
-        entity_urn = post.get("entity_urn")
-        if not isinstance(entity_urn, str):
-            _add_engagement_error(post, ValueError("Unable to determine LinkedIn post URN"))
-            continue
-        item = results.get(entity_urn) if isinstance(results, Mapping) else None
-        if not isinstance(item, Mapping):
-            _add_engagement_error(post, ValueError("No social metadata returned for post"))
-            continue
-        post.update(_normalize_social_metadata_payload(item))
+    _enrich_posts(posts, client=client, settings=settings, budget=budget, fetch=fetch)
 
 
 def _enrich_posts_with_analytics(
@@ -393,30 +519,55 @@ def _enrich_posts_with_analytics(
     client: Any | None,
     settings: LinkedInPostsSettings,
     metric_types: tuple[str, ...],
+    budget: RequestBudget,
 ) -> None:
-    for post in posts:
-        entity_urn = post.get("entity_urn")
-        if not isinstance(entity_urn, str):
-            _add_engagement_error(post, ValueError("Unable to determine LinkedIn post URN"))
-            continue
-        entity_urn_str = entity_urn
-        metrics: dict[str, int | None] = {}
+    def fetch(runtime_client: Any, post: dict[str, Any]) -> None:
+        post["analytics"] = {}
         for metric_type in metric_types:
-            try:
-                def load_metric(runtime_client: Any, *, entity_urn: str = entity_urn_str, metric_type: str = metric_type) -> dict[str, Any]:
-                    return runtime_client.get_member_post_analytics(entity_urn, query_type=metric_type)
+            payload = runtime_client.get_member_post_analytics(post["entity_urn"], query_type=metric_type)
+            post["analytics"][metric_type] = _extract_analytics_total(payload)
 
-                payload = _with_linkedin_client(
-                    client=client,
-                    settings=settings,
-                    callback=load_metric,
-                )
-            except LinkedInPostsError as exc:
-                _add_engagement_error(post, exc)
+    _enrich_posts(
+        posts, client=client, settings=settings, budget=budget, fetch=fetch,
+        required_scope="r_member_postAnalytics",
+    )
+
+
+def _enrich_posts(
+    posts: list[dict[str, Any]], *, client: Any | None, settings: LinkedInPostsSettings,
+    budget: RequestBudget, fetch: Callable[[Any, dict[str, Any]], None], required_scope: str | None = None,
+) -> None:
+    valid_posts = []
+    for post in posts:
+        if isinstance(post.get("entity_urn"), str):
+            valid_posts.append(post)
+        else:
+            _add_engagement_error(post, ValueError(
+                "No share/ugcPost URN is available. An activity ID cannot safely be converted; "
+                "supply a confirmed post_urn to get_member_post_analytics."
+            ))
+    if not valid_posts:
+        return
+
+    def collect(runtime_client: Any) -> None:
+        for index, post in enumerate(valid_posts):
+            try:
+                fetch(runtime_client, post)
+            except (LinkedInAuthError, LinkedInPermissionError, LinkedInRateLimitError) as exc:
+                for remaining in valid_posts[index:]:
+                    _add_engagement_error(remaining, exc)
                 break
-            metrics[metric_type] = _extract_analytics_total(payload)
-        if metrics:
-            post["analytics"] = metrics
+            except (LinkedInPostsError, ValueError) as exc:
+                _add_engagement_error(post, exc)
+
+    try:
+        _with_linkedin_client(
+            client=client, settings=settings, callback=collect, connection="analytics",
+            required_scope=required_scope, budget=budget,
+        )
+    except (LinkedInPostsError, ValueError) as exc:
+        for post in valid_posts:
+            _add_engagement_error(post, exc)
 
 
 def _posts_from_snapshot_element(element: Mapping[str, Any], *, include_raw: bool) -> list[dict[str, Any]]:
@@ -559,7 +710,7 @@ def _normalize_social_metadata_payload(payload: Mapping[str, Any]) -> dict[str, 
         "comments_state": _first_str(payload, "commentsState"),
         "comments_count": comments_count,
         "top_level_comments_count": top_level_comments_count,
-        "reactions_total": sum(reactions_by_type.values()),
+        "reactions_total": sum(reactions_by_type.values()) if reactions_by_type else None,
         "reactions_by_type": reactions_by_type,
     }
 
@@ -627,7 +778,7 @@ def _extract_analytics_total(payload: Mapping[str, Any]) -> int | None:
 
 def _metric_types_from_arguments(value: Any) -> tuple[str, ...]:
     if value is None:
-        return ANALYTICS_METRIC_TYPES
+        return DEFAULT_ANALYTICS_METRIC_TYPES
     if not isinstance(value, list) or not value:
         raise ValueError("metric_types must be a non-empty array of strings")
     metric_types: list[str] = []
@@ -694,7 +845,7 @@ def _as_bool(value: Any, *, parameter_name: str, default: bool) -> bool:
 def _as_int(value: Any, *, parameter_name: str, default: int, minimum: int, maximum: int) -> int:
     if value is None:
         return default
-    if not isinstance(value, int):
+    if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{parameter_name} must be an integer")
     if not minimum <= value <= maximum:
         raise ValueError(f"{parameter_name} must be between {minimum} and {maximum}")
@@ -704,7 +855,7 @@ def _as_int(value: Any, *, parameter_name: str, default: int, minimum: int, maxi
 def _as_optional_int(value: Any, *, parameter_name: str, minimum: int, maximum: int) -> int | None:
     if value is None:
         return None
-    if not isinstance(value, int):
+    if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{parameter_name} must be an integer")
     if not minimum <= value <= maximum:
         raise ValueError(f"{parameter_name} must be between {minimum} and {maximum}")
