@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "flin-linkedin-posts-mcp",
   "display_name": "flin LinkedIn Posts",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Read your LinkedIn posts and personal analytics with separate app logins. Automatically updates from stable PyPI releases at startup.",
   "author": {
     "name": "flin.agency",
@@ -13,7 +13,7 @@
     "url": "https://github.com/flin-agency/flin-linkedin-posts-mcp"
   },
   "homepage": "https://github.com/flin-agency/flin-linkedin-posts-mcp",
-  "documentation": "https://github.com/flin-agency/flin-linkedin-posts-mcp/blob/v0.3.1/docs/claude-desktop-macos.md",
+  "documentation": "https://github.com/flin-agency/flin-linkedin-posts-mcp/blob/v0.3.2/docs/claude-desktop-macos.md",
   "support": "https://github.com/flin-agency/flin-linkedin-posts-mcp/issues",
   "privacy_policies": [
     "https://www.linkedin.com/legal/privacy-policy"

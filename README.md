@@ -50,9 +50,9 @@ Relevant LinkedIn docs:
 11. `get_member_follower_statistics`
 12. `enrich_member_posts_with_engagement`
 
-## Two LinkedIn connections (0.3.1+)
+## Two LinkedIn connections (0.3.2+)
 
-Version 0.3.1 introduces separate Portability and Community Management credentials and automatic stable PyPI updates at server startup. Import the 0.3.1 MCPB once to obtain the new configuration fields and launcher, then restart the server. Subsequent server updates are picked up at restart without another import; configuration-form changes still require a new MCPB.
+Version 0.3.2 introduces separate Portability and Community Management credentials and automatic stable PyPI updates at server startup. Import the 0.3.2 MCPB once to obtain the new configuration fields and launcher, then restart the server. Subsequent server updates are picked up at restart without another import; configuration-form changes still require a new MCPB.
 
 - **Portability** supplies post text, dates and links through the existing app and token.
 - **Analytics** supplies metrics through a second Community Management app with `r_member_postAnalytics`.

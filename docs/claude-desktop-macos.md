@@ -1,7 +1,7 @@
 # Installation in Claude Desktop auf macOS
 
 1. Claude Desktop auf die aktuelle Version aktualisieren. Das Paket verwendet das offizielle MCPB-Format 0.4 mit von Claude verwalteter UV/Python-Laufzeit (Apple Silicon und Intel).
-2. Unter [GitHub Releases](https://github.com/flin-agency/flin-linkedin-posts-mcp/releases/latest) die Datei `flin-linkedin-posts-mcp-0.3.1-macos.mcpb` herunterladen.
+2. Unter [GitHub Releases](https://github.com/flin-agency/flin-linkedin-posts-mcp/releases/latest) die Datei `flin-linkedin-posts-mcp-0.3.2-macos.mcpb` herunterladen.
 3. In Claude Desktop **Einstellungen → Erweiterungen → Erweiterte Einstellungen → Erweiterung installieren…** öffnen und die `.mcpb`-Datei wählen. Alternativ die Datei mit Claude Desktop öffnen. Die Bezeichnungen können je nach App-Version variieren.
 4. Die Client ID und das Client Secret der eigenen LinkedIn Developer App eintragen. Das Secret ist als sensibles Feld markiert; Claude speichert es über den geschützten Betriebssystemspeicher.
 5. In der LinkedIn Developer App unter Auth exakt `http://127.0.0.1:63141/callback` als Redirect URL hinterlegen. Denselben Wert in der Erweiterung verwenden.
@@ -21,7 +21,7 @@ OAuth-Tokens liegen unter `~/.flin-linkedin-posts-mcp/tokens.json` mit Dateirech
 
 Zum Release gehört `SHA256SUMS`. Optional im Download-Ordner mit `shasum -a 256 -c SHA256SUMS` prüfen. Die Prüfsumme erkennt beschädigte oder abweichende Downloads; sie ersetzt keine Herausgebersignatur. Das Paket ist nicht signiert oder Apple-notarisiert.
 
-**Einmaliger Wechsel von 0.3.0:** Das neue Paket 0.3.1 einmal importieren. Die alte Erweiterung hat noch keinen PyPI-Update-Starter und kann sich diesen nicht selbst nachladen.
+**Einmaliger Wechsel von 0.3.0:** Das neue Paket 0.3.2 einmal importieren. Die alte Erweiterung hat noch keinen PyPI-Update-Starter und kann sich diesen nicht selbst nachladen.
 
 **Danach:** Für Server-Updates ist kein erneuter Paketimport nötig. Claude vollständig beenden und neu öffnen (oder den MCP-Server neu starten). Der nächste Start nutzt die neueste stabile PyPI-Version. Eine bereits laufende Sitzung wird nicht mitten im Gespräch ausgetauscht. `auth_status` zeigt unter `server_version` die tatsächlich gestartete Server-Version; die Erweiterung kann in der Oberfläche weiterhin die ursprüngliche Installer-Version anzeigen.
 
@@ -29,13 +29,13 @@ Der Release-Ablauf veröffentlicht bei jedem neuen Versionstag sowohl auf PyPI a
 
 Format und Installation folgen der [offiziellen MCPB-Spezifikation](https://github.com/modelcontextprotocol/mcpb/blob/main/MANIFEST.md) und [Claude Desktop Hilfe](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop).
 
-## Zweite Verbindung für Post-Analytics (ab 0.3.1)
+## Zweite Verbindung für Post-Analytics (ab 0.3.2)
 
-Version 0.3.1 unterstützt zwei separate LinkedIn-Apps. Pro App benötigst du eine eigene Client ID und ein eigenes Client Secret. Die erste App liefert Post-Texte, die zweite mit Community Management die persönlichen Kennzahlen. Beide Verbindungen verwenden eigene lokal gespeicherte Tokens.
+Version 0.3.2 unterstützt zwei separate LinkedIn-Apps. Pro App benötigst du eine eigene Client ID und ein eigenes Client Secret. Die erste App liefert Post-Texte, die zweite mit Community Management die persönlichen Kennzahlen. Beide Verbindungen verwenden eigene lokal gespeicherte Tokens.
 
 Nach der Community-Management-Freigabe die zweite Client ID, das zweite Client Secret und die Callback-URL in die optionalen Analytics-Felder eintragen. Beispiel: `http://127.0.0.1:63142/callback`, exakt so auch in der zweiten LinkedIn-App registrieren. Das zusätzliche Feld **Analytics app: permissions** kann für Post-Kennzahlen leer bleiben (Standard: `r_member_postAnalytics`). Für Follower-Verläufe `r_member_postAnalytics r_member_profileAnalytics` eintragen, sofern beide Berechtigungen freigeschaltet sind. Nach Änderungen an Berechtigungen erneut bei Analytics anmelden. Bis zur Einrichtung alle Analytics-Felder leer lassen. Die bisherigen Zugangsdaten bleiben in den bisherigen Feldern.
 
-1. Das MCPB für 0.3.1 einmal importieren, damit Claude die neuen Einstellungsfelder erhält.
+1. Das MCPB für 0.3.2 einmal importieren, damit Claude die neuen Einstellungsfelder erhält.
 2. Den laufenden MCP-Server neu starten.
 3. `auth_status` aufrufen: `connections` zeigt Portability und Analytics getrennt.
 4. `login` mit `{"connection":"analytics"}` ausführen. Dasselbe LinkedIn-Konto wie bei Portability verwenden.

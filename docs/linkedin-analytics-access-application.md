@@ -1,6 +1,6 @@
 # LinkedIn analytics: activation after approval
 
-Verified against the official documentation on 2026-11-21. Version 0.3.1 adds separate Portability and Community Management connections. Each app needs its own client ID and client secret for regular OAuth. Automated tests cover both connections; live analytics access must be verified after the member logs in.
+Verified against the official documentation on 2026-11-21. Version 0.3.2 adds separate Portability and Community Management connections. Each app needs its own client ID and client secret for regular OAuth. Automated tests cover both connections; live analytics access must be verified after the member logs in.
 
 ## Which connection supplies which data?
 
@@ -39,7 +39,7 @@ Register the exact callback in the second app. Tokens default to distinct `token
 ## Live acceptance test
 
 1. Check the second app's Auth tab actually lists `r_member_postAnalytics` after approval.
-2. Import the 0.3.1 MCPB once for the added configuration fields and automatic PyPI launcher, then restart the running server. Future stable server versions are loaded at startup. Publishing the server does not change a running session or an already-installed configuration form.
+2. Import the 0.3.2 MCPB once for the added configuration fields and automatic PyPI launcher, then restart the running server. Future stable server versions are loaded at startup. Publishing the server does not change a running session or an already-installed configuration form.
 3. Run `auth_status {}`. This reports local credentials and expiry, not a successful API authorization check.
 4. Run `login {"connection":"analytics"}` and consent using the same member as the portability login.
 5. Run `get_member_analytics {"metric_types":["IMPRESSION"]}` for a one-request check without a post URN or portability token. Then run `get_member_post_analytics` with a known own post URN and `metric_types: ["IMPRESSION"]`.

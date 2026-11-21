@@ -43,5 +43,20 @@ async def smoke(bundle: Path, expected_version: str | None = None) -> None:
                 print(f"Packaged MCP initialized; {len(names)} tools found; unauthenticated auth_status passed.")
 
 
+async def verify_startup(bundle: Path, expected_version: str | None = None) -> None:
+    # PyPI JSON and the package index can propagate at different times. Keep
+    # using the unchanged launcher/cache, and still require the exact version.
+    attempts = 12 if expected_version is not None else 1
+    for attempt in range(attempts):
+        try:
+            await smoke(bundle, expected_version)
+            return
+        except Exception:
+            if attempt == attempts - 1:
+                raise
+            print("Published server not ready; retrying startup in 5 seconds.")
+            await asyncio.sleep(5)
+
+
 if __name__ == "__main__":
-    asyncio.run(asyncio.wait_for(smoke(Path(sys.argv[1]).resolve(), sys.argv[2] if len(sys.argv) > 2 else None), timeout=120))
+    asyncio.run(asyncio.wait_for(verify_startup(Path(sys.argv[1]).resolve(), sys.argv[2] if len(sys.argv) > 2 else None), timeout=120))
