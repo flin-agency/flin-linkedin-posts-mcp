@@ -46,7 +46,36 @@ Relevant LinkedIn docs:
 7. `match_drafts_to_member_posts`
 8. `get_post_social_metadata`
 9. `get_member_post_analytics`
-10. `enrich_member_posts_with_engagement`
+10. `get_member_analytics`
+11. `get_member_follower_statistics`
+12. `enrich_member_posts_with_engagement`
+
+## Two LinkedIn connections (0.3.1+)
+
+Version 0.3.1 introduces separate Portability and Community Management credentials and automatic stable PyPI updates at server startup. Import the 0.3.1 MCPB once to obtain the new configuration fields and launcher, then restart the server. Subsequent server updates are picked up at restart without another import; configuration-form changes still require a new MCPB.
+
+- **Portability** supplies post text, dates and links through the existing app and token.
+- **Analytics** supplies metrics through a second Community Management app with `r_member_postAnalytics`.
+- Authenticate the **same LinkedIn member** in both connections. The server does not compare app-scoped member IDs. LinkedIn checks ownership on each analytics request; an ownership error is returned rather than treated as zero engagement.
+- The analytics permission does not grant post-content access through the Posts API; that requires the separately restricted `r_member_social` permission.
+
+Use `login {"connection":"analytics"}` for the second login. `login {}` continues to use portability. `auth_status {}` includes both local connection states; it does not prove API approval. `logout {"connection":"analytics"}` removes only the second token. Explicit `auth_status {"connection":"analytics"}` inspects that connection on its own.
+
+See [activation and live verification](docs/linkedin-analytics-access-application.md).
+
+## Personal analytics with Community Management access
+
+The Development tier supports the personal analytics tools when the app has the relevant permissions and the member has consented through `login {"connection":"analytics"}`. Product approval does not update an existing token automatically.
+
+- `get_member_post_analytics`: metrics for one confirmed `share`/`ugcPost` URN.
+- `get_member_analytics`: LinkedIn's aggregate metrics across your posts, including deduplicated reach; no post URN or portability login needed.
+- Both accept `metric_types`, `start_date`, `end_date` (exclusive), and `aggregation: "TOTAL"` or `"DAILY"`. Dates use `YYYY-MM-DD`; omit them for lifetime results. Totals are in `metrics_by_type`, daily points with their original date ranges in `series_by_type`. Missing data stays missing.
+- `get_member_follower_statistics`: lifetime follower count or daily follower statistics with the same date filters; requires `r_member_profileAnalytics`. The original response is preserved under `statistics`.
+- Daily metrics exclude reach, link clicks, follower gains and profile views; single-post daily impressions are also unsupported. Daily defaults automatically select supported metrics. Explicit unsupported combinations are rejected before any API request.
+
+For a low-quota first check, call `get_member_analytics {"metric_types":["IMPRESSION"],"start_date":"2026-11-01","end_date":"2026-11-21"}`. For a single post, add its confirmed `post_urn` and use `get_member_post_analytics`.
+
+Each selected metric costs one API request plus retries, including aggregate requests. Aggregate requests avoid one request per post and metric. The Development tier allows 100 calls/member/day and 500 calls/app/day; these tools use GET/FINDER only, never BATCH_GET. A 429 stops the invocation immediately. The per-invocation safety budget does not track daily usage. See the [activation guide](docs/linkedin-analytics-access-application.md) for permissions and live verification.
 
 ## Configuration
 
@@ -70,12 +99,23 @@ Optional:
 - `LINKEDIN_OAUTH_TIMEOUT_SECONDS`: defaults to `300`
 - `LINKEDIN_TOKEN_FILE`: defaults to `~/.flin-linkedin-posts-mcp/tokens.json`
 
+Optional second-app configuration (leave all fields empty until ready):
+
+- `LINKEDIN_ANALYTICS_CLIENT_ID`: Community Management app ID.
+- `LINKEDIN_ANALYTICS_CLIENT_SECRET`: second app secret for regular OAuth.
+- `LINKEDIN_ANALYTICS_REDIRECT_URI`: registered callback, e.g. `http://127.0.0.1:63142/callback`.
+- `LINKEDIN_ANALYTICS_SCOPES`: defaults to `r_member_postAnalytics`. Add `r_member_profileAnalytics` for follower statistics if approved, then log into analytics again. Available as an optional desktop setting; leaving it empty keeps the default.
+- `LINKEDIN_ANALYTICS_OAUTH_FLOW`: inferred from the second secret, independently of the first app.
+- `LINKEDIN_ANALYTICS_TOKEN_FILE`: defaults to a sibling of the first token file, normally `tokens.analytics.json`. The two token files must differ.
+
+New tokens are bound to the app ID. Changing an app ID requires login again. The first app's existing tokens remain compatible. Approved installations that already have a member analytics scope on the first app can continue using one connection when no second app is configured.
+
 Additional LinkedIn access may be required for engagement enrichment:
 
 - `socialMetadata` access for comment and reaction summaries
 - `r_member_postAnalytics` for member post impressions, reach, reactions, comments, and reshares
 
-The Marketing API default is LinkedIn's October 2026 version, the latest release as of October 16, 2026.
+The Marketing API default remains the supported October 2026 version (`202610`).
 The [Member Snapshot API](https://learn.microsoft.com/en-us/linkedin/dma/member-data-portability/shared/member-snapshot-api)
 only supports `202312`. Post listing, analysis, draft matching, and snapshot-domain discovery
 always use that version, regardless of `LINKEDIN_API_VERSION`. The Marketing API version
@@ -101,7 +141,7 @@ The MCP intentionally does not require `LINKEDIN_ACCESS_TOKEN` anymore. Tokens a
 
 ## Claude Desktop on macOS: installable extension
 
-Download the `.mcpb` file from [GitHub Releases](https://github.com/flin-agency/flin-linkedin-posts-mcp/releases/latest) and install it in Claude Desktop's Extensions settings. The extension prompts for your LinkedIn app credentials; the client secret is marked sensitive. A current Claude Desktop with MCPB 0.4 / UV support manages Python and the locked dependencies on first start.
+Download the `.mcpb` file from [GitHub Releases](https://github.com/flin-agency/flin-linkedin-posts-mcp/releases/latest) and install it in Claude Desktop's Extensions settings. The extension prompts for your LinkedIn app credentials; the client secret is marked sensitive. A current Claude Desktop with MCPB 0.4 / UV support manages Python. The extension fetches the latest stable server from PyPI at every server start; restarting Claude applies new server releases without reinstalling the extension.
 
 [Schritt-für-Schritt-Anleitung auf Deutsch](docs/claude-desktop-macos.md) · [Security review](docs/security-review-2026-11-06.md) · [Security model](SECURITY.md)
 
@@ -109,14 +149,14 @@ The LinkedIn API approval described above is still required. Releases include `S
 
 ## Claude Desktop Configuration (manual alternative)
 
-For the hardened wheel attached to the GitHub release (requires `uv`):
+For automatic stable PyPI updates at each start (requires `uv`):
 
 ```json
 {
   "mcpServers": {
     "flin-linkedin-posts-mcp": {
       "command": "uvx",
-      "args": ["--from", "https://github.com/flin-agency/flin-linkedin-posts-mcp/releases/download/v0.3.0/flin_linkedin_posts_mcp-0.3.0-py3-none-any.whl", "flin-linkedin-posts-mcp"],
+      "args": ["--refresh", "--prerelease", "disallow", "flin-linkedin-posts-mcp@latest"],
       "env": {
         "LINKEDIN_CLIENT_ID": "<YOUR_LINKEDIN_CLIENT_ID>",
         "LINKEDIN_CLIENT_SECRET": "<YOUR_LINKEDIN_CLIENT_SECRET>",
@@ -169,7 +209,7 @@ ruff check .
 
 ## Packaging
 
-Build the desktop bundle with `python scripts/build_mcpb.py` after `uv lock --check`. Only explicitly allowlisted files enter `dist/desktop/`; the archive includes `uv.lock` and a SHA-256 checksum.
+Build the desktop bundle with `python scripts/build_mcpb.py` after `uv lock --check`. Only the launcher, minimal dependency-free project metadata, and allowlisted documentation enter `dist/desktop/`; a SHA-256 checksum accompanies the archive. The runtime server comes from PyPI and is intentionally not fixed by the repository lockfile. See [release requirements](docs/releasing.md): every version release must publish both PyPI distributions and a new desktop bundle through the Release workflow.
 
 ```bash
 python3 -m build
@@ -201,4 +241,9 @@ flin-linkedin-posts-mcp
 - Saved LinkedIn drafts are not exposed as a documented portability snapshot domain here. `match_drafts_to_member_posts` compares draft texts you already have against published posts; it does not fetch drafts from LinkedIn.
 - `analyze_member_posts` can return very large payloads when `include_posts=true`. Use `post_limit` to cap the embedded `posts` list, or set `include_posts=false` when you only need aggregate metrics.
 - `enrich_member_posts_with_engagement` keeps export discovery and engagement lookup separate. It fetches exported posts first, derives post URNs, then merges in `socialMetadata` and analytics where available.
-- Bulk enrichment is intentionally bounded. Use `limit` to keep the number of analytics calls under control and expect per-post `engagement_errors` when a URN cannot be derived or LinkedIn denies a lookup.
+- Bulk enrichment defaults to five posts and five base metrics. `max_api_calls` defaults to 50 and caps engagement HTTP attempts, including retries, for that invocation. It is not a persistent daily quota and excludes portability/OAuth calls. Reduce `limit` or the metric selection if the estimated request exceeds the budget. Monitor LinkedIn's daily quota across all sessions and clients.
+- `include_social_metadata` defaults to `false`: analytics approval does not grant social metadata access. Explicit social enrichment uses individual GETs, not BATCH_GET (unavailable in Development tier).
+- Analytics additionally accepts `POST_SAVE`, `POST_SEND`, `LINK_CLICKS`, `PREMIUM_CTA_CLICKS`, `FOLLOWER_GAINED_FROM_CONTENT`, and `PROFILE_VIEW_FROM_CONTENT` through `metric_types` / `analytics_metric_types`. Defaults remain the five base metrics to conserve quota.
+- Bulk lookups stop querying an endpoint on authentication or permission errors. A rate-limit response stops further engagement requests across both endpoints. Post content and completed metrics are retained with per-post `engagement_errors`. Missing metrics remain `null`; genuine zero counts remain `0`.
+- A confirmed `urn:li:share:...` or `urn:li:ugcPost:...` is required. Generic activity URLs/IDs are not guessed into another URN type. If a snapshot has no usable URN, enrichment returns an explicit error and preserves its text. A supplied, confirmed URN can still be tested with `get_member_post_analytics`.
+- Analytics currently returns lifetime totals for single posts. Date-range, daily, aggregated-member and video analytics are not yet exposed by these tools.

@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flin-linkedin-posts-mcp"
-version = "0.3.0"
-description = "Local MCP server for authenticated LinkedIn member post snapshots"
+version = "0.3.1"
+description = "Local MCP server for LinkedIn member posts and personal analytics with separate app logins"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -37,6 +37,9 @@ Issues = "https://github.com/flin-agency/flin-linkedin-posts-mcp/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/flin_linkedin_posts_mcp"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["/output"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

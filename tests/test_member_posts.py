@@ -310,7 +310,7 @@ def test_enrich_member_posts_with_engagement_merges_metadata_and_analytics(tmp_p
     result = enrich_member_posts_with_engagement(
         client=client,
         settings=_settings(tmp_path / "tokens.json"),
-        arguments={"limit": 2, "analytics_metric_types": ["IMPRESSION", "REACTION"]},
+        arguments={"limit": 2, "analytics_metric_types": ["IMPRESSION", "REACTION"], "include_social_metadata": True},
     )
 
     assert result["data"][0]["entity_urn"] == "urn:li:share:1"

@@ -1,4 +1,4 @@
-"""Build a deterministic source bundle using an explicit file allowlist."""
+"""Build a deterministic auto-updating launcher bundle with an explicit file allowlist."""
 from __future__ import annotations
 
 import hashlib
@@ -16,19 +16,23 @@ def build_bundle(output_dir: Path, *, root: Path = ROOT) -> Path:
     version = project["project"]["version"]
     if manifest["version"] != version:
         raise ValueError("Manifest and project versions must match")
-    lock = tomllib.loads((root / "uv.lock").read_text())
-    package = next(p for p in lock["package"] if p["name"] == project["project"]["name"])
-    if package["version"] != version:
-        raise ValueError("Lockfile and project versions must match")
     files = [root / name for name in (
-        "manifest.json", "pyproject.toml", "uv.lock", "README.md", "LICENSE",
+        "manifest.json", "README.md", "LICENSE",
         "SECURITY.md", "desktop/server.py", "docs/claude-desktop-macos.md",
-        "docs/security-review-2026-11-06.md",
+        "docs/security-review-2026-11-06.md", "docs/releasing.md",
     )]
-    files.extend(sorted((root / "src" / "flin_linkedin_posts_mcp").rglob("*.py")))
     output_dir.mkdir(parents=True, exist_ok=True)
     output = output_dir / f"flin-linkedin-posts-mcp-{version}-macos.mcpb"
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        # MCPB UV hosts require project metadata, but the launcher has no dependencies.
+        metadata = (
+            '[project]\nname = "flin-linkedin-desktop-launcher"\n'
+            f'version = "{version}"\nrequires-python = ">=3.11"\ndependencies = []\n'
+        )
+        info = zipfile.ZipInfo("pyproject.toml", date_time=(2026, 1, 1, 0, 0, 0))
+        info.compress_type = zipfile.ZIP_DEFLATED
+        info.external_attr = 0o100644 << 16
+        archive.writestr(info, metadata)
         for path in files:
             if path.is_symlink() or not path.is_file():
                 raise ValueError(f"Expected a regular file: {path}")

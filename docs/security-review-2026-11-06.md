@@ -1,5 +1,7 @@
 # Security review — 2026-11-06 / v0.3.0
 
+Historical review of v0.3.0. From v0.3.1, the desktop bundle deliberately uses automatic stable PyPI updates instead of the bundled, locked server described below. See [the current security model](../SECURITY.md) and [release process](releasing.md) for the changed update trust boundary. The server-side security fixes remain in place.
+
 Scope: all server source, OAuth/token handling, tool inputs, API transport, dependency lock, GitHub workflows, and the new macOS Claude Desktop bundle. Review combines manual inspection, security regression tests, Bandit static analysis, and pip-audit of the locked runtime requirements.
 
 ## Findings fixed

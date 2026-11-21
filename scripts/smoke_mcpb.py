@@ -14,7 +14,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 
-async def smoke(bundle: Path) -> None:
+async def smoke(bundle: Path, expected_version: str | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix="flin-mcpb-smoke-") as directory:
         root = Path(directory)
         with zipfile.ZipFile(bundle) as archive:
@@ -29,14 +29,19 @@ async def smoke(bundle: Path) -> None:
             async with ClientSession(reader, writer) as session:
                 await session.initialize()
                 tools = await session.list_tools()
-                assert len(tools.tools) == 10
+                names = {tool.name for tool in tools.tools}
+                assert {"auth_status", "get_member_post_analytics"} <= names
+                if expected_version is not None:
+                    assert {"get_member_analytics", "get_member_follower_statistics"} <= names
                 result = await session.call_tool("auth_status", {})
                 assert not result.isError
                 payload = json.loads(result.content[0].text)
                 assert payload["ok"] and payload["data"]["authenticated"] is False
                 assert payload["data"]["client_secret_configured"] is False
-                print("Packaged MCP initialized; 10 tools found; unauthenticated auth_status passed.")
+                if expected_version is not None:
+                    assert payload["data"]["server_version"] == expected_version, payload["data"]
+                print(f"Packaged MCP initialized; {len(names)} tools found; unauthenticated auth_status passed.")
 
 
 if __name__ == "__main__":
-    asyncio.run(asyncio.wait_for(smoke(Path(sys.argv[1]).resolve()), timeout=120))
+    asyncio.run(asyncio.wait_for(smoke(Path(sys.argv[1]).resolve(), sys.argv[2] if len(sys.argv) > 2 else None), timeout=120))

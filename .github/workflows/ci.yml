@@ -41,7 +41,7 @@ jobs:
         run: ruff check .
 
       - name: Type check
-        run: mypy src
+        run: mypy src desktop
 
       - name: Test
         run: pytest -q
@@ -58,7 +58,7 @@ jobs:
           uvx --from pip-audit==2.10.1 pip-audit -r /tmp/runtime-requirements.txt --no-deps --disable-pip
 
       - name: Static security checks
-        run: uvx --from bandit==1.9.4 bandit -r src -q
+        run: uvx --from bandit==1.9.4 bandit -r src desktop -q
 
       - name: Build and smoke-test desktop bundle
         run: |
